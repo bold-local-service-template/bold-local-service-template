@@ -1,0 +1,259 @@
+{
+  "schemaVersion": 1,
+  "name": "Bold Local Service",
+  "description": "One-page layout with hero quote form, work gallery, accordion services, timeline steps, reviews marquee, FAQ, map and contact mosaic.",
+  "nicheTags": [],
+  "previewUrl": "",
+  "configPath": "public/site.config.json",
+  "fields": [
+    { "key": "details.businessName", "type": "text", "label": "Business Name", "max": 80 },
+    { "key": "details.logoText", "type": "text", "label": "Logo Text", "max": 50 },
+    { "key": "details.tagline", "type": "text", "label": "Tagline", "max": 140 },
+    { "key": "details.metaTitle", "type": "text", "label": "Meta Title", "max": 120 },
+    { "key": "details.metaDescription", "type": "textarea", "label": "Meta Description", "max": 300 },
+    { "key": "details.ogTitle", "type": "text", "label": "Social Title", "max": 120 },
+    { "key": "details.ogDescription", "type": "textarea", "label": "Social Description", "max": 300 },
+
+    { "key": "details.nav.ctaLabel", "type": "text", "label": "Nav CTA Button Text", "max": 40 },
+    { "key": "details.nav.secondaryButtonLabel", "type": "text", "label": "Nav Secondary Button Label", "max": 40 },
+    { "key": "details.nav.secondaryButtonUrl", "type": "text", "label": "Nav Secondary Button URL", "max": 200 },
+
+    { "key": "details.hero.subtitle", "type": "textarea", "label": "Hero Subtitle", "max": 400 },
+    { "key": "details.hero.showTitleText", "type": "boolean", "label": "Show Business Name in Hero" },
+
+    { "key": "details.quote.enabled", "type": "boolean", "label": "Enable Quote Form" },
+    { "key": "details.quote.segmentLabel", "type": "text", "label": "Quote Category Label", "max": 40 },
+    { "key": "details.quote.serviceLabel", "type": "text", "label": "Quote Service Label", "max": 40 },
+    { "key": "details.quote.locationLabel", "type": "text", "label": "Quote Location Label", "max": 40 },
+    { "key": "details.quote.propertyLabel", "type": "text", "label": "Quote Property Type Label", "max": 40 },
+    { "key": "details.quote.buttonText", "type": "text", "label": "Quote Button Text", "max": 40 },
+    { "key": "details.quote.messageTemplate", "type": "textarea", "label": "WhatsApp Message Template", "max": 500 },
+    { "key": "details.quote.defaultSegment", "type": "text", "label": "Default Category", "max": 40 },
+    { "key": "details.quote.defaultService", "type": "text", "label": "Default Service", "max": 50 },
+    { "key": "details.quote.defaultLocation", "type": "text", "label": "Default Location", "max": 50 },
+    { "key": "details.quote.defaultProperty", "type": "text", "label": "Default Property Type", "max": 50 },
+
+    { "key": "details.work.tagLabel", "type": "text", "label": "Work Tag Label", "max": 40 },
+    { "key": "details.work.title", "type": "text", "label": "Work Section Title", "max": 80 },
+    { "key": "details.work.description", "type": "textarea", "label": "Work Section Description", "max": 400 },
+    { "key": "details.work.totalProjectsLabel", "type": "text", "label": "Total Projects Counter", "max": 40 },
+    { "key": "details.work.instagramNotice", "type": "text", "label": "Work Social Notice", "max": 160 },
+    { "key": "details.work.viewAllLabelTop", "type": "text", "label": "View All Top Label", "max": 40 },
+    { "key": "details.work.viewAllLabelBottom", "type": "text", "label": "View All Bottom Label", "max": 40 },
+
+    { "key": "details.services.tagLabel", "type": "text", "label": "Services Tag Label", "max": 40 },
+    { "key": "details.services.title", "type": "text", "label": "Services Section Title", "max": 80 },
+
+    { "key": "details.why.tagLabel", "type": "text", "label": "Why Tag Label", "max": 40 },
+    { "key": "details.why.title", "type": "text", "label": "Why Section Title", "max": 80 },
+    { "key": "details.why.leadText", "type": "textarea", "label": "Why Lead Paragraph", "max": 400 },
+
+    { "key": "details.steps.tagLabel", "type": "text", "label": "Steps Tag Label", "max": 40 },
+    { "key": "details.steps.title", "type": "text", "label": "Steps Section Title", "max": 80 },
+    { "key": "details.steps.ctaButtonText", "type": "text", "label": "Steps CTA Button Text", "max": 40 },
+    { "key": "details.steps.ctaSubText", "type": "text", "label": "Steps CTA Subtext", "max": 140 },
+
+    { "key": "details.reviews.tagLabel", "type": "text", "label": "Reviews Tag Label", "max": 40 },
+    { "key": "details.reviews.title", "type": "text", "label": "Reviews Section Title", "max": 80 },
+    { "key": "details.reviews.countLabel", "type": "text", "label": "Reviews Count Label", "max": 40 },
+
+    { "key": "details.faq.tagLabel", "type": "text", "label": "FAQ Tag Label", "max": 40 },
+    { "key": "details.faq.title", "type": "text", "label": "FAQ Section Title", "max": 80 },
+
+    { "key": "details.find.tagLabel", "type": "text", "label": "Find Us Tag Label", "max": 40 },
+    { "key": "details.find.title", "type": "text", "label": "Find Us Section Title", "max": 80 },
+    { "key": "details.find.mapsSearchUrl", "type": "text", "label": "Google Maps Search URL", "max": 200 },
+    { "key": "details.find.mapsEmbedUrl", "type": "text", "label": "Google Maps Embed URL", "max": 300 },
+    { "key": "details.find.mapEnabled", "type": "boolean", "label": "Enable Map Embed" },
+    { "key": "details.find.buttonText", "type": "text", "label": "Maps Button Text", "max": 50 },
+
+    { "key": "details.ctaMosaic.title", "type": "text", "label": "Contact Mosaic Title", "max": 100 },
+    { "key": "details.ctaMosaic.callButtonText", "type": "text", "label": "Call Button Text", "max": 40 },
+
+    { "key": "details.contact.phone", "type": "text", "label": "Phone Display", "max": 30 },
+    { "key": "details.contact.phoneTel", "type": "text", "label": "Phone Tel Link", "max": 30 },
+    { "key": "details.contact.email", "type": "text", "label": "Email Address", "max": 80 },
+    { "key": "details.contact.address", "type": "textarea", "label": "Physical Address", "max": 160 },
+    { "key": "details.contact.openingHours", "type": "text", "label": "Opening Hours", "max": 120 },
+    { "key": "details.contact.whatsappUrl", "type": "text", "label": "WhatsApp Number or URL", "max": 100 },
+    { "key": "details.contact.instagramUrl", "type": "text", "label": "Instagram URL", "max": 200 },
+    { "key": "details.contact.instagramHandle", "type": "text", "label": "Instagram Handle", "max": 60 },
+    { "key": "details.contact.facebookUrl", "type": "text", "label": "Facebook URL", "max": 200 },
+    { "key": "details.contact.tiktokUrl", "type": "text", "label": "TikTok URL", "max": 200 },
+    { "key": "details.contact.youtubeUrl", "type": "text", "label": "YouTube URL", "max": 200 },
+
+    { "key": "details.footer.heading", "type": "text", "label": "Footer Heading", "max": 100 },
+    { "key": "details.footer.subtitle", "type": "textarea", "label": "Footer Subtitle", "max": 400 },
+    { "key": "details.footer.blurb", "type": "textarea", "label": "Footer About Blurb", "max": 400 },
+    { "key": "details.footer.navTitle", "type": "text", "label": "Footer Nav Column Title", "max": 40 },
+    { "key": "details.footer.servicesTitle", "type": "text", "label": "Footer Services Column Title", "max": 40 },
+    { "key": "details.footer.contactTitle", "type": "text", "label": "Footer Contact Column Title", "max": 40 },
+    { "key": "details.footer.copyrightLine", "type": "text", "label": "Footer Copyright Line", "max": 100 },
+    { "key": "details.footer.rightsText", "type": "text", "label": "Footer Rights Subtext", "max": 80 },
+    { "key": "details.footer.giantText", "type": "text", "label": "Giant Background Text", "max": 60 },
+
+    { "key": "details.creator.enabled", "type": "boolean", "label": "Enable Creator Badge" },
+    { "key": "details.creator.url", "type": "text", "label": "Creator Website URL", "max": 200 },
+    { "key": "details.creator.label", "type": "text", "label": "Creator Small Label", "max": 20 },
+    { "key": "details.creator.brandTop", "type": "text", "label": "Creator Brand Top", "max": 20 },
+    { "key": "details.creator.brandBottom", "type": "text", "label": "Creator Brand Bottom", "max": 20 },
+
+    { "key": "assets.logoImage", "type": "image", "label": "Logo Image" },
+    { "key": "assets.favicon", "type": "image", "label": "Favicon" },
+    { "key": "assets.heroImage", "type": "image", "label": "Hero Background Image" },
+
+    { "key": "brand.primaryColor", "type": "color", "label": "Primary Brand Color" },
+    { "key": "brand.secondaryColor", "type": "color", "label": "Secondary Brand Color" },
+    { "key": "brand.accentColor", "type": "color", "label": "Accent Button Color" },
+    { "key": "brand.fontStack", "type": "text", "label": "Font Family Stack", "max": 200 },
+    { "key": "brand.radius", "type": "number", "label": "Corner Radius (0-28)", "max": 28 },
+    { "key": "brand.density", "type": "select", "label": "Content Density" }
+  ],
+  "lists": [
+    {
+      "key": "details.nav.links",
+      "label": "Navigation Links",
+      "max": 6,
+      "itemFields": [
+        { "key": "label", "type": "text", "label": "Label", "max": 40 },
+        { "key": "target", "type": "text", "label": "Target (#id)", "max": 100 }
+      ]
+    },
+    {
+      "key": "details.quote.segments",
+      "label": "Quote Segments",
+      "max": 3,
+      "itemFields": [
+        { "key": "", "type": "text", "label": "Segment", "max": 40 }
+      ]
+    },
+    {
+      "key": "details.quote.services",
+      "label": "Quote Services",
+      "max": 8,
+      "itemFields": [
+        { "key": "", "type": "text", "label": "Service", "max": 50 }
+      ]
+    },
+    {
+      "key": "details.quote.locations",
+      "label": "Quote Locations",
+      "max": 8,
+      "itemFields": [
+        { "key": "", "type": "text", "label": "Location", "max": 50 }
+      ]
+    },
+    {
+      "key": "details.quote.propertyTypes",
+      "label": "Quote Property Types",
+      "max": 6,
+      "itemFields": [
+        { "key": "", "type": "text", "label": "Property Type", "max": 50 }
+      ]
+    },
+    {
+      "key": "details.marquee.items",
+      "label": "Marquee Ticker Items",
+      "max": 10,
+      "itemFields": [
+        { "key": "", "type": "text", "label": "Item Text", "max": 60 }
+      ]
+    },
+    {
+      "key": "details.work.projects",
+      "label": "Work Portfolio Projects",
+      "max": 8,
+      "itemFields": [
+        { "key": "title", "type": "text", "label": "Title", "max": 100 },
+        { "key": "location", "type": "text", "label": "Location", "max": 100 },
+        { "key": "material", "type": "text", "label": "Material / Category", "max": 60 },
+        { "key": "duration", "type": "text", "label": "Duration", "max": 40 },
+        { "key": "area", "type": "text", "label": "Area / Size", "max": 40 },
+        { "key": "image", "type": "image", "label": "Project Photo" },
+        { "key": "imageAlt", "type": "text", "label": "Image Alt Text", "max": 120 }
+      ]
+    },
+    {
+      "key": "details.services.items",
+      "label": "Service Items",
+      "max": 6,
+      "itemFields": [
+        { "key": "title", "type": "text", "label": "Title", "max": 80 },
+        { "key": "text", "type": "textarea", "label": "Description", "max": 400 },
+        { "key": "image", "type": "image", "label": "Background Image" }
+      ]
+    },
+    {
+      "key": "details.why.features",
+      "label": "Why Choose Us Cards",
+      "max": 4,
+      "itemFields": [
+        { "key": "title", "type": "text", "label": "Title", "max": 80 },
+        { "key": "text", "type": "textarea", "label": "Description", "max": 400 }
+      ]
+    },
+    {
+      "key": "details.steps.items",
+      "label": "Timeline Step Items",
+      "max": 6,
+      "itemFields": [
+        { "key": "badge", "type": "text", "label": "Badge (e.g. STEP 01)", "max": 20 },
+        { "key": "title", "type": "text", "label": "Title", "max": 80 },
+        { "key": "text", "type": "textarea", "label": "Description", "max": 500 },
+        { "key": "image", "type": "image", "label": "Step Photo" }
+      ]
+    },
+    {
+      "key": "details.reviews.items",
+      "label": "Client Reviews",
+      "max": 12,
+      "itemFields": [
+        { "key": "initials", "type": "text", "label": "Initials", "max": 6 },
+        { "key": "author", "type": "text", "label": "Author Name", "max": 60 },
+        { "key": "meta", "type": "text", "label": "Meta (City, Project)", "max": 80 },
+        { "key": "serviceTag", "type": "text", "label": "Service Chip", "max": 40 },
+        { "key": "text", "type": "textarea", "label": "Review Text", "max": 500 }
+      ]
+    },
+    {
+      "key": "details.faq.items",
+      "label": "FAQ Items",
+      "max": 8,
+      "itemFields": [
+        { "key": "question", "type": "text", "label": "Question", "max": 160 },
+        { "key": "answer", "type": "textarea", "label": "Answer", "max": 800 }
+      ]
+    },
+    {
+      "key": "details.find.serviceAreas",
+      "label": "Service Areas",
+      "max": 8,
+      "itemFields": [
+        { "key": "", "type": "text", "label": "Area Name", "max": 50 }
+      ]
+    },
+    {
+      "key": "details.ctaMosaic.images",
+      "label": "Mosaic Grid Images",
+      "max": 6,
+      "itemFields": [
+        { "key": "src", "type": "image", "label": "Image URL" },
+        { "key": "alt", "type": "text", "label": "Alt Text", "max": 100 }
+      ]
+    }
+  ],
+  "sections": [
+    { "id": "hero", "label": "Hero", "defaultOn": true },
+    { "id": "marquee", "label": "Marquee", "defaultOn": true },
+    { "id": "work", "label": "Work", "defaultOn": true },
+    { "id": "services", "label": "Services", "defaultOn": true },
+    { "id": "why", "label": "Why Choose Us", "defaultOn": true },
+    { "id": "steps", "label": "Steps", "defaultOn": true },
+    { "id": "reviews", "label": "Reviews", "defaultOn": true },
+    { "id": "faq", "label": "FAQ", "defaultOn": true },
+    { "id": "find", "label": "Find Us", "defaultOn": true },
+    { "id": "contact", "label": "Contact", "defaultOn": true }
+  ],
+  "variants": [],
+  "images": ["logoImage", "favicon", "heroImage"]
+}

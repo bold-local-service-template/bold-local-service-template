@@ -1,0 +1,254 @@
+{
+  "details": {
+    "businessName": "Your business name",
+    "logoText": "Your business",
+    "tagline": "Quality service you can trust",
+    "metaTitle": "Your business name | Short description goes here",
+    "metaDescription": "Short description goes here",
+    "ogTitle": "Your business name | Short description goes here",
+    "ogDescription": "Short description goes here",
+    "nav": {
+      "links": [
+        { "label": "Home", "target": "#home" },
+        { "label": "Services", "target": "#services" },
+        { "label": "Our Work", "target": "#work" },
+        { "label": "About", "target": "#why" },
+        { "label": "Contact", "target": "#contact" }
+      ],
+      "ctaLabel": "Get in touch",
+      "secondaryButtonLabel": "",
+      "secondaryButtonUrl": ""
+    },
+    "hero": {
+      "subtitle": "Short description goes here",
+      "showTitleText": true
+    },
+    "quote": {
+      "enabled": false,
+      "segments": [],
+      "segmentLabel": "Category",
+      "services": [],
+      "locations": [],
+      "propertyTypes": [],
+      "serviceLabel": "Service",
+      "locationLabel": "Location",
+      "propertyLabel": "Type",
+      "buttonText": "Get Quote",
+      "messageTemplate": "Hello {business}, I would like a quote for {service} in {location} ({property}, {segment}).",
+      "defaultSegment": "",
+      "defaultService": "",
+      "defaultLocation": "",
+      "defaultProperty": ""
+    },
+    "marquee": {
+      "items": [
+        "Quality",
+        "Reliable",
+        "Professional",
+        "Guaranteed",
+        "Experienced",
+        "Dedicated"
+      ]
+    },
+    "work": {
+      "tagLabel": "Featured Projects",
+      "title": "Our work",
+      "description": "Short description goes here",
+      "totalProjectsLabel": "",
+      "instagramNotice": "",
+      "viewAllLabelTop": "",
+      "viewAllLabelBottom": "",
+      "projects": []
+    },
+    "services": {
+      "tagLabel": "What We Do",
+      "title": "Services",
+      "items": [
+        {
+          "title": "Consultation & Planning",
+          "text": "Comprehensive initial consultation to understand your project needs and timeline.",
+          "image": ""
+        },
+        {
+          "title": "Precision Execution",
+          "text": "Quality workmanship delivered by experienced professionals using durable materials.",
+          "image": ""
+        },
+        {
+          "title": "Maintenance & Care",
+          "text": "Ongoing support, routine servicing, and prompt repairs when you need them.",
+          "image": ""
+        }
+      ]
+    },
+    "why": {
+      "tagLabel": "About Us",
+      "title": "Why choose us",
+      "leadText": "Short description goes here",
+      "features": [
+        {
+          "title": "Clear, Honest Pricing",
+          "text": "Know the full scope and cost up front with no hidden extras."
+        },
+        {
+          "title": "Quality Workmanship",
+          "text": "Dependable service and high standards on every project."
+        },
+        {
+          "title": "Fast Direct Communication",
+          "text": "Quick responses and clear guidance every step of the way."
+        }
+      ]
+    },
+    "steps": {
+      "tagLabel": "Process",
+      "title": "How it works",
+      "items": [
+        {
+          "badge": "STEP 01",
+          "title": "Send Details",
+          "text": "Share your requirements and photos for an initial review with no paperwork.",
+          "image": ""
+        },
+        {
+          "badge": "STEP 02",
+          "title": "Free Estimate",
+          "text": "Receive a clear price and proposal tailored to your property before work starts.",
+          "image": ""
+        },
+        {
+          "badge": "STEP 03",
+          "title": "Schedule & Work",
+          "text": "Work begins on the agreed date with clean, tidy, and considerate progress throughout.",
+          "image": ""
+        },
+        {
+          "badge": "STEP 04",
+          "title": "Final Walkthrough",
+          "text": "We inspect every detail together to guarantee complete satisfaction with the result.",
+          "image": ""
+        }
+      ],
+      "ctaButtonText": "Get in touch",
+      "ctaSubText": "Fast response and a clear next step."
+    },
+    "reviews": {
+      "tagLabel": "Client Reviews",
+      "title": "What clients say",
+      "countLabel": "",
+      "items": []
+    },
+    "faq": {
+      "tagLabel": "Help & Info",
+      "title": "Questions? Answered.",
+      "items": [
+        {
+          "question": "How do I request an estimate?",
+          "answer": "Send a message or call with a short description of your project. We review details and provide a clear plan."
+        },
+        {
+          "question": "Which areas do you cover?",
+          "answer": "We provide service to local residential and commercial properties. Contact us to confirm your location."
+        },
+        {
+          "question": "Are quotes free and without obligation?",
+          "answer": "Yes, all initial estimates and consultations are completely free with zero obligation."
+        },
+        {
+          "question": "How quickly can work begin?",
+          "answer": "Timelines depend on project scope. Share your requirements and we will provide our current schedule."
+        }
+      ]
+    },
+    "find": {
+      "tagLabel": "Location",
+      "title": "Where to find us",
+      "mapsSearchUrl": "",
+      "mapsEmbedUrl": "",
+      "mapEnabled": false,
+      "buttonText": "Open in Google Maps",
+      "serviceAreas": [
+        "Central Area",
+        "North Region",
+        "East District",
+        "South Sector"
+      ]
+    },
+    "ctaMosaic": {
+      "title": "Ready to start your next project?",
+      "callButtonText": "Call now",
+      "images": []
+    },
+    "contact": {
+      "phone": "",
+      "phoneTel": "",
+      "email": "",
+      "address": "",
+      "openingHours": "",
+      "whatsappUrl": "",
+      "instagramUrl": "",
+      "instagramHandle": "",
+      "facebookUrl": "",
+      "tiktokUrl": "",
+      "youtubeUrl": ""
+    },
+    "footer": {
+      "heading": "Ready to talk?",
+      "subtitle": "Get in touch today for more information.",
+      "blurb": "Quality workmanship, reliable service, and transparent communication.",
+      "navTitle": "Navigation",
+      "servicesTitle": "Services",
+      "contactTitle": "Contact",
+      "copyrightLine": "All rights reserved.",
+      "rightsText": "Licensed and insured.",
+      "giantText": "Your business name"
+    },
+    "creator": {
+      "enabled": false,
+      "url": "",
+      "label": "MADE BY",
+      "brandTop": "Open",
+      "brandBottom": "Hours"
+    }
+  },
+  "assets": {
+    "logoImage": "",
+    "favicon": "",
+    "heroImage": ""
+  },
+  "brand": {
+    "primaryColor": "#1e3820",
+    "secondaryColor": "#122414",
+    "accentColor": "#88e038",
+    "fontStack": "system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif",
+    "radius": 16,
+    "density": "normal"
+  },
+  "layout": {
+    "sectionsOn": {
+      "hero": true,
+      "marquee": true,
+      "work": true,
+      "services": true,
+      "why": true,
+      "steps": true,
+      "reviews": true,
+      "faq": true,
+      "find": true,
+      "contact": true
+    },
+    "sectionOrder": [
+      "hero",
+      "marquee",
+      "work",
+      "services",
+      "why",
+      "steps",
+      "reviews",
+      "faq",
+      "find",
+      "contact"
+    ],
+    "variants": {}
+  }
+}
