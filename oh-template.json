@@ -3,7 +3,7 @@
   "name": "Bold Local Service",
   "description": "One-page layout with hero quote form, work gallery, accordion services, timeline steps, reviews marquee, FAQ, map and contact mosaic.",
   "nicheTags": [],
-  "previewUrl": "",
+  "previewUrl": "https://bold-local-service-template.vercel.app/",
   "configPath": "public/site.config.json",
   "fields": [
     { "key": "details.businessName", "type": "text", "label": "Business Name", "max": 80 },
