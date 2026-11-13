@@ -18,9 +18,11 @@ import { Faq } from './components/sections/Faq';
 import { Find } from './components/sections/Find';
 import { CtaMosaic } from './components/sections/CtaMosaic';
 import { Footer } from './components/sections/Footer';
+import { DebugPanel } from './components/DebugPanel';
 
 function AppContent() {
-  const { layout } = useSiteConfig();
+  const config = useSiteConfig();
+  const { layout } = config;
   const [scrollProgress, setScrollProgress] = useState(0);
   const [timelineProgress, setTimelineProgress] = useState(0);
   const timelineRef = useRef<HTMLElement>(null);
@@ -86,10 +88,10 @@ function AppContent() {
       { threshold: 0.12 }
     );
 
-    document.querySelectorAll('.ra').forEach((el) => observer.observe(el));
+    document.querySelectorAll('.ra:not(.show)').forEach((el) => observer.observe(el));
 
     return () => observer.disconnect();
-  }, [layout]);
+  }, [config]);
 
   const isSectionOn = (id: string) => {
     return layout.sectionsOn[id as keyof typeof layout.sectionsOn] !== false;
@@ -124,6 +126,7 @@ function AppContent() {
       </main>
 
       <Footer />
+      <DebugPanel />
     </>
   );
 }

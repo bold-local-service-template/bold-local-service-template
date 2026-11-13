@@ -44,6 +44,7 @@ export const Hero: React.FC = () => {
 
   const heroImageSrc = safeImageUrl(assets.heroImage);
   const showTitle = Boolean(!heroImageSrc || details.hero.showTitleText);
+  const heroTitle = details.hero.title !== undefined ? details.hero.title : details.businessName;
 
   // Filter nav links: only include targets where sections are enabled
   const navLinks = details.nav.links.filter((link) => {
@@ -81,8 +82,8 @@ export const Hero: React.FC = () => {
       <div className="shade" />
 
       {/* Live title text when no hero image or showTitleText is true */}
-      {showTitle && details.businessName && (
-        <div className="big">{details.businessName}</div>
+      {showTitle && heroTitle && (
+        <div className="big">{heroTitle}</div>
       )}
 
       <nav>
