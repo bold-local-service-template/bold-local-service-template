@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { SiteConfigProvider, useSiteConfig } from './siteConfig';
+import { SiteConfigProvider, usePreviewStatus, useSiteConfig } from './siteConfig';
 import { ProgressBar } from './components/sections/ProgressBar';
 import { CreatorBadge } from './components/sections/CreatorBadge';
 import { Hero } from './components/sections/Hero';
@@ -131,10 +131,80 @@ function AppContent() {
   );
 }
 
+function AppGate() {
+  const previewStatus = usePreviewStatus();
+
+  if (previewStatus === 'loading') {
+    return <div style={{ minHeight: '100vh', backgroundColor: '#ffffff' }} aria-busy="true" />;
+  }
+
+  if (previewStatus === 'expired') {
+    return (
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px',
+          backgroundColor: '#f8fafc',
+          color: '#0f172a',
+          fontFamily:
+            'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          textAlign: 'center',
+        }}
+      >
+        <div style={{ maxWidth: '480px' }}>
+          <p style={{ fontSize: '18px', lineHeight: 1.6, margin: '0 0 16px' }}>
+            This website was made 60 days ago. Contact Open Hours to regenerate it or apply for a
+            new one.
+          </p>
+          <a
+            href="https://openhoursstudio.digital"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              color: '#1e3820',
+              fontWeight: 600,
+              textDecoration: 'underline',
+              fontSize: '16px',
+            }}
+          >
+            https://openhoursstudio.digital
+          </a>
+        </div>
+      </main>
+    );
+  }
+
+  if (previewStatus === 'not_found') {
+    return (
+      <main
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px',
+          backgroundColor: '#f8fafc',
+          color: '#0f172a',
+          fontFamily:
+            'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          textAlign: 'center',
+        }}
+      >
+        <p style={{ fontSize: '18px', lineHeight: 1.6, margin: 0 }}>This link is not valid.</p>
+      </main>
+    );
+  }
+
+  return <AppContent />;
+}
+
 export default function App() {
   return (
     <SiteConfigProvider>
-      <AppContent />
+      <AppGate />
     </SiteConfigProvider>
   );
 }

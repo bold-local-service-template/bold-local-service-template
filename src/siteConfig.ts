@@ -1771,12 +1771,17 @@ export function updatePageMeta(config: SiteConfig) {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level OH_CONFIG receiver (registered ONCE at app start)
+// Module-level OH_CONFIG receiver & optional ?p=<token> Supabase preview loader
 // ---------------------------------------------------------------------------
 
+export type PreviewStatus = 'ready' | 'loading' | 'expired' | 'not_found';
+
 const MAX_PAYLOAD_BYTES = 6 * 1024 * 1024;
+const PREVIEW_TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
+const PREVIEW_TIMEOUT_MS = 8000;
 
 let currentConfig: SiteConfig = defaultSiteConfig;
+let previewStatus: PreviewStatus = 'ready';
 let debugState: OhDebugState = {
   lastMessageTime: null,
   appliedCount: 0,
@@ -1794,6 +1799,10 @@ function emitStoreChange() {
 
 export function getSiteConfigSnapshot(): SiteConfig {
   return currentConfig;
+}
+
+export function getPreviewStatusSnapshot(): PreviewStatus {
+  return previewStatus;
 }
 
 export function getDebugStateSnapshot(): OhDebugState {
@@ -1821,6 +1830,15 @@ function extractConfigObject(data: Record<string, unknown>): unknown {
     fallback[key] = val;
   }
   return Object.keys(fallback).length > 0 ? fallback : undefined;
+}
+
+function applyNormalizedConfig(rawConfig: Record<string, unknown>): ValidateMergeResult {
+  const normalised = normalise(rawConfig);
+  const result = validateAndMergeConfigWithErrors(normalised, defaultSiteConfig);
+  currentConfig = result.config;
+  applyBrandCssVariables(result.config.brand);
+  updatePageMeta(result.config);
+  return result;
 }
 
 export function processIncomingOhMessage(
@@ -1882,14 +1900,10 @@ export function processIncomingOhMessage(
     return false;
   }
 
-  const normalised = normalise(rawConfig);
-  const { config: merged, applied, rejected } = validateAndMergeConfigWithErrors(
-    normalised,
-    defaultSiteConfig
-  );
+  const { applied, rejected } = applyNormalizedConfig(rawConfig);
 
   hasReceivedLiveConfig = true;
-  currentConfig = merged;
+  previewStatus = 'ready';
   debugState = {
     lastMessageTime: nowIso,
     appliedCount: applied.length,
@@ -1898,8 +1912,6 @@ export function processIncomingOhMessage(
     rawReceivedConfig: rawConfig,
   };
 
-  applyBrandCssVariables(merged.brand);
-  updatePageMeta(merged);
   postToParent({ type: 'OH_APPLIED', version: 1, applied, rejected });
   emitStoreChange();
   return true;
@@ -1909,34 +1921,158 @@ function handleWindowMessage(event: MessageEvent) {
   processIncomingOhMessage(event.source, event.data);
 }
 
+function getSupabaseEnv(): { url: string; anonKey: string } {
+  let rawUrl = '';
+  let rawAnonKey = '';
+  try {
+    rawUrl = import.meta.env.VITE_SUPABASE_URL || '';
+  } catch {
+    rawUrl = '';
+  }
+  try {
+    rawAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  } catch {
+    rawAnonKey = '';
+  }
+  return {
+    url: String(rawUrl).trim().replace(/\/+$/, ''),
+    anonKey: String(rawAnonKey).trim(),
+  };
+}
+
+function setDocumentStatusTitle(title: string) {
+  if (typeof document !== 'undefined') {
+    document.title = title;
+  }
+}
+
+async function fetchSupabasePreview(supabaseUrl: string, anonKey: string, token: string) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => {
+        controller.abort();
+      }, PREVIEW_TIMEOUT_MS)
+    : null;
+
+  try {
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/get_website_preview`, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ p_token: token }),
+      signal: controller ? controller.signal : undefined,
+      referrerPolicy: 'no-referrer',
+    });
+
+    if (!res.ok) {
+      previewStatus = 'not_found';
+      setDocumentStatusTitle('This link is not valid');
+      emitStoreChange();
+      return;
+    }
+
+    const json = await res.json();
+    const payload = Array.isArray(json) ? json[0] : json;
+    if (!isPlainObject(payload)) {
+      previewStatus = 'not_found';
+      setDocumentStatusTitle('This link is not valid');
+      emitStoreChange();
+      return;
+    }
+
+    if (payload.status === 'ok') {
+      const rawCfg = isPlainObject(payload.config) ? payload.config : {};
+      const { applied, rejected } = applyNormalizedConfig(rawCfg);
+      hasReceivedLiveConfig = true;
+      previewStatus = 'ready';
+      debugState = {
+        lastMessageTime: new Date().toISOString(),
+        appliedCount: applied.length,
+        appliedKeys: applied,
+        rejected,
+        rawReceivedConfig: rawCfg,
+      };
+      emitStoreChange();
+      return;
+    }
+
+    if (payload.status === 'expired') {
+      previewStatus = 'expired';
+      setDocumentStatusTitle('Website Expired');
+      emitStoreChange();
+      return;
+    }
+
+    previewStatus = 'not_found';
+    setDocumentStatusTitle('This link is not valid');
+    emitStoreChange();
+  } catch {
+    previewStatus = 'not_found';
+    setDocumentStatusTitle('This link is not valid');
+    emitStoreChange();
+  } finally {
+    if (timeoutId !== null) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 export function initOhConfigReceiver() {
   if (typeof window === 'undefined' || isReceiverInitialized) return;
   isReceiverInitialized = true;
 
-  applyBrandCssVariables(currentConfig.brand);
-  updatePageMeta(currentConfig);
-
   window.addEventListener('message', handleWindowMessage);
   postToParent({ type: 'OH_READY', version: 1 });
+
+  let previewToken: string | null = null;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('p')) {
+      previewToken = params.get('p') ?? '';
+    }
+  } catch {
+    previewToken = null;
+  }
+
+  if (previewToken !== null) {
+    const { url, anonKey } = getSupabaseEnv();
+    if (!url || !anonKey) {
+      // Missing Supabase env vars: skip silently and keep defaults
+      previewStatus = 'ready';
+      applyBrandCssVariables(currentConfig.brand);
+      updatePageMeta(currentConfig);
+      return;
+    }
+
+    if (!PREVIEW_TOKEN_RE.test(previewToken)) {
+      previewStatus = 'not_found';
+      setDocumentStatusTitle('This link is not valid');
+      return;
+    }
+
+    previewStatus = 'loading';
+    void fetchSupabasePreview(url, anonKey, previewToken);
+    return;
+  }
+
+  // Normal mode (no ?p): behave identically to before
+  applyBrandCssVariables(currentConfig.brand);
+  updatePageMeta(currentConfig);
 
   fetch('/site.config.json', { cache: 'no-store' })
     .then((res) => (res.ok ? res.json() : null))
     .then((json) => {
-      if (json && !hasReceivedLiveConfig) {
-        const normalised = normalise(json);
-        const { config: merged, applied, rejected } = validateAndMergeConfigWithErrors(
-          normalised,
-          defaultSiteConfig
-        );
-        currentConfig = merged;
+      if (json && !hasReceivedLiveConfig && isPlainObject(json)) {
+        const { applied, rejected } = applyNormalizedConfig(json);
         debugState = {
           ...debugState,
           appliedCount: applied.length,
           appliedKeys: applied,
           rejected,
         };
-        applyBrandCssVariables(merged.brand);
-        updatePageMeta(merged);
         emitStoreChange();
       }
     })
@@ -1954,6 +2090,21 @@ const SiteConfigContext = createContext<SiteConfig>(defaultSiteConfig);
 
 export function useSiteConfig(): SiteConfig {
   return useContext(SiteConfigContext);
+}
+
+export function usePreviewStatus(): PreviewStatus {
+  const [status, setStatus] = useState<PreviewStatus>(() => getPreviewStatusSnapshot());
+
+  useEffect(() => {
+    setStatus(getPreviewStatusSnapshot());
+    const sync = () => setStatus(getPreviewStatusSnapshot());
+    storeListeners.add(sync);
+    return () => {
+      storeListeners.delete(sync);
+    };
+  }, []);
+
+  return status;
 }
 
 export function useDebugState(): OhDebugState {
@@ -1985,8 +2136,10 @@ export const SiteConfigProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, []);
 
   useEffect(() => {
-    applyBrandCssVariables(config.brand);
-    updatePageMeta(config);
+    if (getPreviewStatusSnapshot() === 'ready') {
+      applyBrandCssVariables(config.brand);
+      updatePageMeta(config);
+    }
   }, [config]);
 
   return React.createElement(SiteConfigContext.Provider, { value: config }, children);
