@@ -3,11 +3,11 @@ import { applyBrandCssVariables } from './utils/color';
 import {
   cleanPhoneDigits,
   isValidHexColor,
-  isValidHttpsUrl,
   isValidImageUrl,
   isValidLink,
   isValidMapEmbedUrl,
   isValidPhoneTel,
+  isValidWebUrl,
   isValidWhatsApp,
 } from './utils/sanitize';
 
@@ -200,23 +200,17 @@ export interface SiteConfig {
   };
 }
 
-export interface SkippedFieldError {
-  path: string;
+export interface RejectedField {
+  key: string;
   reason: string;
 }
 
-export type ConfigShape = 'nested' | 'flat' | 'mixed' | 'none';
-
 export interface OhDebugState {
-  ohReadySentCount: number;
-  lastMessageOrigin: string;
-  ohConfigReceivedCount: number;
-  lastOhConfigTime: string | null;
-  lastPayloadBytes: number;
-  topLevelKeys: string[];
-  shapeDetected: ConfigShape;
-  skippedFields: SkippedFieldError[];
-  lastReceivedConfig: unknown;
+  lastMessageTime: string | null;
+  appliedCount: number;
+  appliedKeys: string[];
+  rejected: RejectedField[];
+  rawReceivedConfig: unknown;
 }
 
 export const defaultSiteConfig: SiteConfig = {
@@ -480,48 +474,11 @@ const VALID_SECTION_IDS: SectionId[] = [
   'contact',
 ];
 
+const MAX_STRING_LENGTH = 2000;
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function isPlainObject(val: unknown): val is Record<string, unknown> {
   return Boolean(val) && typeof val === 'object' && !Array.isArray(val);
-}
-
-/**
- * Extract the config object from an incoming OH_CONFIG message payload.
- * Supports:
- *   - Wrapped: { type: 'OH_CONFIG', version: 1, config: { ... } } (also payload / data)
- *   - Direct:  { type: 'OH_CONFIG', version: 1, details: { ... } } or { type: 'OH_CONFIG', version: 1, "details.hero.title": "..." }
- */
-export function extractRawConfig(messageData: unknown): Record<string, unknown> | null {
-  if (!isPlainObject(messageData)) return null;
-
-  if ('config' in messageData && messageData.config !== undefined) {
-    return isPlainObject(messageData.config) ? messageData.config : null;
-  }
-  if ('payload' in messageData && messageData.payload !== undefined) {
-    return isPlainObject(messageData.payload) ? messageData.payload : null;
-  }
-  if ('data' in messageData && messageData.data !== undefined) {
-    return isPlainObject(messageData.data) ? messageData.data : null;
-  }
-
-  const direct: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(messageData)) {
-    if (key === 'type' || key === 'version' || UNSAFE_KEYS.has(key)) continue;
-    direct[key] = value;
-  }
-  return direct;
-}
-
-export function detectConfigShape(rawObj: unknown): ConfigShape {
-  if (!isPlainObject(rawObj)) return 'none';
-  const keys = Object.keys(rawObj);
-  if (keys.length === 0) return 'nested';
-  const hasDotKeys = keys.some((k) => k.includes('.'));
-  const hasNestedKeys = keys.some((k) => !k.includes('.'));
-  if (hasDotKeys && hasNestedKeys) return 'mixed';
-  if (hasDotKeys) return 'flat';
-  return 'nested';
 }
 
 function setByPath(target: Record<string, unknown>, path: string, value: unknown): void {
@@ -595,34 +552,34 @@ function compactSparseArrays(node: unknown): unknown {
 }
 
 /**
- * Normalise flat dot-keys (e.g. "details.hero.title", "details.faq.items.0.question",
- * "details.marquee.items.0") into the nested config shape, preserving nested objects
+ * Convert flat dot-keys (e.g. "details.hero.title", "details.services.items.0.title",
+ * "details.marquee.items.0") into nested objects and arrays, preserving nested objects
  * and mixed payloads.
  */
-export function normalizeIncomingConfig(rawObj: unknown): Record<string, unknown> {
-  if (!isPlainObject(rawObj)) return {};
+export function normalise(input: unknown): Record<string, unknown> {
+  if (!isPlainObject(input)) return {};
 
   const result: Record<string, unknown> = {};
 
   // Pass 1: clone non-dot keys recursively
-  for (const [key, value] of Object.entries(rawObj)) {
+  for (const [key, value] of Object.entries(input)) {
     if (UNSAFE_KEYS.has(key) || key.includes('.')) continue;
     if (isPlainObject(value)) {
-      result[key] = normalizeIncomingConfig(value);
+      result[key] = normalise(value);
     } else if (Array.isArray(value)) {
-      result[key] = value.map((item) => (isPlainObject(item) ? normalizeIncomingConfig(item) : item));
+      result[key] = value.map((item) => (isPlainObject(item) ? normalise(item) : item));
     } else {
       result[key] = value;
     }
   }
 
   // Pass 2: apply flat dot-keys by path
-  for (const [key, value] of Object.entries(rawObj)) {
+  for (const [key, value] of Object.entries(input)) {
     if (UNSAFE_KEYS.has(key) || !key.includes('.')) continue;
     const normalizedVal = isPlainObject(value)
-      ? normalizeIncomingConfig(value)
+      ? normalise(value)
       : Array.isArray(value)
-      ? value.map((item) => (isPlainObject(item) ? normalizeIncomingConfig(item) : item))
+      ? value.map((item) => (isPlainObject(item) ? normalise(item) : item))
       : value;
     setByPath(result, key, normalizedVal);
   }
@@ -630,28 +587,263 @@ export function normalizeIncomingConfig(rawObj: unknown): Record<string, unknown
   return compactSparseArrays(result) as Record<string, unknown>;
 }
 
+export const normalizeIncomingConfig = normalise;
+
+type SchemaNode = Record<string, unknown>;
+
+const CONFIG_SCHEMA: SchemaNode = {
+  details: {
+    businessName: true,
+    logoText: true,
+    tagline: true,
+    metaTitle: true,
+    metaDescription: true,
+    ogTitle: true,
+    ogDescription: true,
+    nav: {
+      links: { label: true, target: true },
+      ctaLabel: true,
+      secondaryButtonLabel: true,
+      secondaryButtonUrl: true,
+    },
+    hero: {
+      title: true,
+      subtitle: true,
+      showTitleText: true,
+    },
+    quote: {
+      enabled: true,
+      segments: true,
+      segmentLabel: true,
+      services: true,
+      locations: true,
+      propertyTypes: true,
+      serviceLabel: true,
+      locationLabel: true,
+      propertyLabel: true,
+      buttonText: true,
+      messageTemplate: true,
+      defaultSegment: true,
+      defaultService: true,
+      defaultLocation: true,
+      defaultProperty: true,
+    },
+    marquee: {
+      items: true,
+    },
+    work: {
+      tagLabel: true,
+      title: true,
+      description: true,
+      totalProjectsLabel: true,
+      instagramNotice: true,
+      viewAllLabelTop: true,
+      viewAllLabelBottom: true,
+      projects: {
+        title: true,
+        location: true,
+        material: true,
+        duration: true,
+        area: true,
+        image: true,
+        imageAlt: true,
+      },
+    },
+    services: {
+      tagLabel: true,
+      title: true,
+      items: {
+        title: true,
+        text: true,
+        image: true,
+      },
+    },
+    why: {
+      tagLabel: true,
+      title: true,
+      leadText: true,
+      features: {
+        title: true,
+        text: true,
+      },
+    },
+    steps: {
+      tagLabel: true,
+      title: true,
+      items: {
+        badge: true,
+        title: true,
+        text: true,
+        image: true,
+      },
+      ctaButtonText: true,
+      ctaSubText: true,
+    },
+    reviews: {
+      tagLabel: true,
+      title: true,
+      countLabel: true,
+      items: {
+        initials: true,
+        author: true,
+        meta: true,
+        serviceTag: true,
+        text: true,
+      },
+    },
+    faq: {
+      tagLabel: true,
+      title: true,
+      items: {
+        question: true,
+        answer: true,
+      },
+    },
+    find: {
+      tagLabel: true,
+      title: true,
+      mapsSearchUrl: true,
+      mapsEmbedUrl: true,
+      mapEnabled: true,
+      buttonText: true,
+      serviceAreas: true,
+    },
+    ctaMosaic: {
+      title: true,
+      callButtonText: true,
+      images: {
+        src: true,
+        alt: true,
+      },
+    },
+    contact: {
+      phone: true,
+      phoneTel: true,
+      email: true,
+      address: true,
+      openingHours: true,
+      whatsappUrl: true,
+      instagramUrl: true,
+      instagramHandle: true,
+      facebookUrl: true,
+      tiktokUrl: true,
+      youtubeUrl: true,
+    },
+    footer: {
+      heading: true,
+      subtitle: true,
+      blurb: true,
+      navTitle: true,
+      servicesTitle: true,
+      contactTitle: true,
+      copyrightLine: true,
+      rightsText: true,
+      giantText: true,
+    },
+    creator: {
+      enabled: true,
+      url: true,
+      label: true,
+      brandTop: true,
+      brandBottom: true,
+    },
+  },
+  assets: {
+    logoImage: true,
+    favicon: true,
+    heroImage: true,
+  },
+  brand: {
+    primaryColor: true,
+    secondaryColor: true,
+    accentColor: true,
+    fontStack: true,
+    radius: true,
+    density: true,
+  },
+  layout: {
+    sectionsOn: {
+      hero: true,
+      marquee: true,
+      work: true,
+      services: true,
+      why: true,
+      steps: true,
+      reviews: true,
+      faq: true,
+      find: true,
+      contact: true,
+    },
+    sectionOrder: true,
+    variants: '*',
+  },
+};
+
+function collectUnknownKeys(
+  obj: Record<string, unknown>,
+  schema: SchemaNode,
+  prefix: string,
+  rejected: RejectedField[]
+) {
+  for (const [key, val] of Object.entries(obj)) {
+    const fullPath = prefix ? `${prefix}.${key}` : key;
+    if (!(key in schema)) {
+      rejected.push({ key: fullPath, reason: 'unknown key' });
+      continue;
+    }
+    const subSchema = schema[key];
+    if (subSchema === '*') continue;
+    if (isPlainObject(subSchema)) {
+      if (isPlainObject(val)) {
+        collectUnknownKeys(val, subSchema, fullPath, rejected);
+      } else if (Array.isArray(val)) {
+        val.forEach((item, idx) => {
+          if (isPlainObject(item)) {
+            collectUnknownKeys(item, subSchema, `${fullPath}.${idx}`, rejected);
+          }
+        });
+      }
+    }
+  }
+}
+
+export interface ValidateMergeResult {
+  config: SiteConfig;
+  applied: string[];
+  rejected: RejectedField[];
+}
+
 /**
- * Field-level validation & merge onto defaults.
+ * Field-level validation & deep-merge over defaults.
  * - undefined keeps the default
- * - "" explicitly removes that block (except brand colors / fontStack where "" keeps default)
- * - Arrays replace (never append)
- * - Invalid single field skips ONLY that field, keeps the rest, and records { path, reason }
+ * - "" removes the content block (except brand colors / fontStack where "" keeps default)
+ * - Arrays from parent replace default arrays
+ * - Unknown keys are recorded in rejected[] with reason "unknown key"
+ * - Invalid fields skip ONLY that field and record { key, reason } in rejected[]
  */
 export function validateAndMergeConfigWithErrors(
   raw: unknown,
   base: SiteConfig = defaultSiteConfig
-): { config: SiteConfig; skippedFields: SkippedFieldError[] } {
-  const skippedFields: SkippedFieldError[] = [];
+): ValidateMergeResult {
+  const applied: string[] = [];
+  const rejected: RejectedField[] = [];
 
   if (!isPlainObject(raw)) {
     if (raw !== undefined) {
-      skippedFields.push({ path: '(root)', reason: 'Config payload must be a plain object' });
+      rejected.push({ key: 'config', reason: 'expected plain object' });
     }
-    return { config: base, skippedFields };
+    return { config: base, applied, rejected };
   }
 
-  const recordSkip = (path: string, reason: string) => {
-    skippedFields.push({ path, reason });
+  // Flag any unknown keys anywhere in the normalised object tree
+  collectUnknownKeys(raw, CONFIG_SCHEMA, '', rejected);
+
+  const recordApplied = (key: string) => {
+    applied.push(key);
+  };
+
+  const recordRejected = (key: string, reason: string) => {
+    rejected.push({ key, reason });
   };
 
   const getObj = (
@@ -662,9 +854,9 @@ export function validateAndMergeConfigWithErrors(
     const val = parent[key];
     if (val === undefined) return {};
     if (!isPlainObject(val)) {
-      recordSkip(
+      recordRejected(
         path,
-        `Expected object, got ${val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val}`
+        `expected object, got ${val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val}`
       );
       return {};
     }
@@ -674,51 +866,55 @@ export function validateAndMergeConfigWithErrors(
   const valText = (
     val: unknown,
     fallback: string,
-    max: number,
     path: string,
-    keepDefaultOnEmpty = false
+    keepDefaultOnEmpty = false,
+    maxLen = MAX_STRING_LENGTH
   ): string => {
     if (val === undefined) return fallback;
     if (typeof val !== 'string') {
-      recordSkip(path, `Expected string, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, `expected string, got ${val === null ? 'null' : typeof val}`);
       return fallback;
     }
     const trimmed = val.trim();
     if (trimmed === '' && keepDefaultOnEmpty) {
+      recordApplied(path);
       return fallback;
     }
-    if (trimmed.length > max) {
-      recordSkip(path, `Exceeds max length of ${max} chars (got ${trimmed.length})`);
+    if (trimmed.length > maxLen) {
+      recordRejected(path, `exceeds max ${maxLen} chars`);
       return fallback;
     }
+    recordApplied(path);
     return trimmed;
   };
 
   const valOptionalText = (
     val: unknown,
     fallback: string | undefined,
-    max: number,
-    path: string
+    path: string,
+    maxLen = MAX_STRING_LENGTH
   ): string | undefined => {
     if (val === undefined) return fallback;
     if (typeof val !== 'string') {
-      recordSkip(path, `Expected string, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, `expected string, got ${val === null ? 'null' : typeof val}`);
       return fallback;
     }
     const trimmed = val.trim();
-    if (trimmed.length > max) {
-      recordSkip(path, `Exceeds max length of ${max} chars (got ${trimmed.length})`);
+    if (trimmed.length > maxLen) {
+      recordRejected(path, `exceeds max ${maxLen} chars`);
       return fallback;
     }
+    recordApplied(path);
     return trimmed;
   };
 
   const valBool = (val: unknown, fallback: boolean, path: string): boolean => {
     if (val === undefined) return fallback;
     if (typeof val !== 'boolean') {
-      recordSkip(path, `Expected boolean, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, `expected boolean, got ${val === null ? 'null' : typeof val}`);
       return fallback;
     }
+    recordApplied(path);
     return val;
   };
 
@@ -726,121 +922,152 @@ export function validateAndMergeConfigWithErrors(
     val: unknown,
     fallback: string,
     path: string,
-    opts?: { allowHash?: boolean; httpsOnly?: boolean; max?: number }
+    opts?: { allowHash?: boolean; webOnly?: boolean }
   ): string => {
     if (val === undefined) return fallback;
     if (typeof val !== 'string') {
-      recordSkip(path, `Expected URL string, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, `expected URL string, got ${val === null ? 'null' : typeof val}`);
       return fallback;
     }
     const trimmed = val.trim();
-    if (trimmed === '') return '';
-    const maxLen = opts?.max ?? 500;
-    if (trimmed.length > maxLen) {
-      recordSkip(path, `URL exceeds max length of ${maxLen} chars`);
+    if (trimmed === '') {
+      recordApplied(path);
+      return '';
+    }
+    if (trimmed.length > MAX_STRING_LENGTH) {
+      recordRejected(path, `exceeds max ${MAX_STRING_LENGTH} chars`);
       return fallback;
     }
-    if (opts?.httpsOnly) {
-      if (!isValidHttpsUrl(trimmed)) {
-        recordSkip(path, 'Invalid link (must start with https://)');
+    if (opts?.webOnly) {
+      if (!isValidWebUrl(trimmed)) {
+        recordRejected(path, 'URL must start with http:// or https://');
         return fallback;
       }
+      recordApplied(path);
       return trimmed;
     }
     if (!isValidLink(trimmed, Boolean(opts?.allowHash))) {
-      recordSkip(
+      recordRejected(
         path,
-        `Invalid link protocol (allowed: ${opts?.allowHash ? 'https://, tel:, mailto:, #' : 'https://, tel:, mailto:'})`
+        opts?.allowHash
+          ? 'URL must be http, https, tel, mailto, or #'
+          : 'URL must be http, https, tel, or mailto'
       );
       return fallback;
     }
+    recordApplied(path);
     return trimmed;
   };
 
   const valImage = (val: unknown, fallback: string, path: string): string => {
     if (val === undefined) return fallback;
     if (typeof val !== 'string') {
-      recordSkip(path, `Expected image URL string, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, `expected image URL string, got ${val === null ? 'null' : typeof val}`);
       return fallback;
     }
     const trimmed = val.trim();
-    if (trimmed === '') return '';
-    if (!isValidImageUrl(trimmed)) {
-      recordSkip(path, 'Invalid image URL (allowed: https:// or data:image/(png|jpeg|webp))');
+    if (trimmed === '') {
+      recordApplied(path);
+      return '';
+    }
+    const isDataUrl = trimmed.startsWith('data:image/');
+    if (!isDataUrl && trimmed.length > MAX_STRING_LENGTH) {
+      recordRejected(path, `URL exceeds max ${MAX_STRING_LENGTH} chars`);
       return fallback;
     }
+    if (!isValidImageUrl(trimmed)) {
+      recordRejected(path, 'invalid image URL (allowed: http/https or data:image/png|jpeg|webp)');
+      return fallback;
+    }
+    recordApplied(path);
     return trimmed;
   };
 
   const valMapEmbed = (val: unknown, fallback: string, path: string): string => {
     if (val === undefined) return fallback;
     if (typeof val !== 'string') {
-      recordSkip(path, `Expected map embed URL string, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, `expected map embed URL string`);
       return fallback;
     }
     const trimmed = val.trim();
-    if (trimmed === '') return '';
-    if (trimmed.length > 1500) {
-      recordSkip(path, 'Map embed URL exceeds max length of 1500 chars');
+    if (trimmed === '') {
+      recordApplied(path);
+      return '';
+    }
+    if (trimmed.length > MAX_STRING_LENGTH) {
+      recordRejected(path, `exceeds max ${MAX_STRING_LENGTH} chars`);
       return fallback;
     }
     if (!isValidMapEmbedUrl(trimmed)) {
-      recordSkip(path, 'Map embed URL must start with https://www.google.com/maps');
+      recordRejected(path, 'map embed URL must start with https://www.google.com/maps');
       return fallback;
     }
+    recordApplied(path);
     return trimmed;
   };
 
   const valWhatsApp = (val: unknown, fallback: string, path: string): string => {
     if (val === undefined) return fallback;
     if (typeof val !== 'string') {
-      recordSkip(path, `Expected WhatsApp number or wa.me URL, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, 'expected WhatsApp number or wa.me URL string');
       return fallback;
     }
     const trimmed = val.trim();
-    if (trimmed === '') return '';
-    if (trimmed.length > 150) {
-      recordSkip(path, 'WhatsApp value exceeds max length of 150 chars');
+    if (trimmed === '') {
+      recordApplied(path);
+      return '';
+    }
+    if (trimmed.length > MAX_STRING_LENGTH) {
+      recordRejected(path, `exceeds max ${MAX_STRING_LENGTH} chars`);
       return fallback;
     }
     if (!isValidWhatsApp(trimmed)) {
-      recordSkip(path, 'Invalid WhatsApp value (expected phone digits or https://wa.me/<digits>)');
+      recordRejected(path, 'invalid WhatsApp number or https://wa.me/ URL');
       return fallback;
     }
+    recordApplied(path);
     return trimmed;
   };
 
   const valPhoneTel = (val: unknown, fallback: string, path: string): string => {
     if (val === undefined) return fallback;
     if (typeof val !== 'string') {
-      recordSkip(path, `Expected phone tel string, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, 'expected phone tel string');
       return fallback;
     }
     const trimmed = val.trim();
-    if (trimmed === '') return '';
-    if (trimmed.length > 30) {
-      recordSkip(path, 'Phone tel exceeds max length of 30 chars');
+    if (trimmed === '') {
+      recordApplied(path);
+      return '';
+    }
+    if (trimmed.length > MAX_STRING_LENGTH) {
+      recordRejected(path, `exceeds max ${MAX_STRING_LENGTH} chars`);
       return fallback;
     }
     if (!isValidPhoneTel(trimmed)) {
-      recordSkip(path, 'Invalid phone tel format');
+      recordRejected(path, 'invalid phone tel format');
       return fallback;
     }
+    recordApplied(path);
     return trimmed;
   };
 
   const valColor = (val: unknown, fallback: string, path: string): string => {
     if (val === undefined) return fallback;
     if (typeof val !== 'string') {
-      recordSkip(path, `Expected hex color string, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, 'expected hex color string');
       return fallback;
     }
     const trimmed = val.trim();
-    if (trimmed === '') return fallback;
-    if (!isValidHexColor(trimmed)) {
-      recordSkip(path, 'Invalid hex color (expected #RGB or #RRGGBB)');
+    if (trimmed === '') {
+      recordApplied(path);
       return fallback;
     }
+    if (!isValidHexColor(trimmed)) {
+      recordRejected(path, 'invalid hex color (#RGB or #RRGGBB)');
+      return fallback;
+    }
+    recordApplied(path);
     return trimmed;
   };
 
@@ -848,20 +1075,19 @@ export function validateAndMergeConfigWithErrors(
     val: unknown,
     fallback: string[],
     maxItems: number,
-    maxItemLen: number,
     path: string
   ): string[] => {
     if (val === undefined) return fallback;
     if (!Array.isArray(val)) {
-      recordSkip(path, `Expected array, got ${val === null ? 'null' : typeof val}`);
+      recordRejected(path, `expected array, got ${val === null ? 'null' : typeof val}`);
       return fallback;
     }
     if (val.length > maxItems) {
-      recordSkip(path, `Array exceeds max length of ${maxItems} (extra items truncated)`);
+      recordRejected(path, `array exceeds max ${maxItems} items`);
     }
     const out: string[] = [];
     val.slice(0, maxItems).forEach((item, idx) => {
-      const cleaned = valText(item, '', maxItemLen, `${path}.${idx}`);
+      const cleaned = valText(item, '', `${path}.${idx}`);
       if (cleaned) out.push(cleaned);
     });
     return out;
@@ -877,20 +1103,20 @@ export function validateAndMergeConfigWithErrors(
   let links = base.details.nav.links;
   if (navInput.links !== undefined) {
     if (!Array.isArray(navInput.links)) {
-      recordSkip('details.nav.links', 'Expected array');
+      recordRejected('details.nav.links', 'expected array');
     } else {
       if (navInput.links.length > 6) {
-        recordSkip('details.nav.links', 'Array exceeds max length of 6 (extra items truncated)');
+        recordRejected('details.nav.links', 'array exceeds max 6 items');
       }
       const nextLinks: Array<{ label: string; target: string }> = [];
       navInput.links.slice(0, 6).forEach((item, idx) => {
         const itemPath = `details.nav.links.${idx}`;
         if (!isPlainObject(item)) {
-          recordSkip(itemPath, 'Expected object');
+          recordRejected(itemPath, 'expected object');
           return;
         }
-        const label = valText(item.label, '', 40, `${itemPath}.label`);
-        const target = valLink(item.target, '', `${itemPath}.target`, { allowHash: true, max: 160 });
+        const label = valText(item.label, '', `${itemPath}.label`);
+        const target = valLink(item.target, '', `${itemPath}.target`, { allowHash: true });
         if (label && target) {
           nextLinks.push({ label, target });
         }
@@ -906,39 +1132,35 @@ export function validateAndMergeConfigWithErrors(
   const qInput = getObj(d, 'quote', 'details.quote');
   const quote: SiteConfig['details']['quote'] = {
     enabled: valBool(qInput.enabled, base.details.quote.enabled, 'details.quote.enabled'),
-    segments: valStringArray(qInput.segments, base.details.quote.segments, 3, 40, 'details.quote.segments'),
-    segmentLabel: valText(qInput.segmentLabel, base.details.quote.segmentLabel, 40, 'details.quote.segmentLabel'),
-    services: valStringArray(qInput.services, base.details.quote.services, 8, 50, 'details.quote.services'),
-    locations: valStringArray(qInput.locations, base.details.quote.locations, 8, 50, 'details.quote.locations'),
+    segments: valStringArray(qInput.segments, base.details.quote.segments, 3, 'details.quote.segments'),
+    segmentLabel: valText(qInput.segmentLabel, base.details.quote.segmentLabel, 'details.quote.segmentLabel'),
+    services: valStringArray(qInput.services, base.details.quote.services, 8, 'details.quote.services'),
+    locations: valStringArray(qInput.locations, base.details.quote.locations, 8, 'details.quote.locations'),
     propertyTypes: valStringArray(
       qInput.propertyTypes,
       base.details.quote.propertyTypes,
       6,
-      50,
       'details.quote.propertyTypes'
     ),
-    serviceLabel: valText(qInput.serviceLabel, base.details.quote.serviceLabel, 40, 'details.quote.serviceLabel'),
-    locationLabel: valText(qInput.locationLabel, base.details.quote.locationLabel, 40, 'details.quote.locationLabel'),
-    propertyLabel: valText(qInput.propertyLabel, base.details.quote.propertyLabel, 40, 'details.quote.propertyLabel'),
-    buttonText: valText(qInput.buttonText, base.details.quote.buttonText, 40, 'details.quote.buttonText'),
+    serviceLabel: valText(qInput.serviceLabel, base.details.quote.serviceLabel, 'details.quote.serviceLabel'),
+    locationLabel: valText(qInput.locationLabel, base.details.quote.locationLabel, 'details.quote.locationLabel'),
+    propertyLabel: valText(qInput.propertyLabel, base.details.quote.propertyLabel, 'details.quote.propertyLabel'),
+    buttonText: valText(qInput.buttonText, base.details.quote.buttonText, 'details.quote.buttonText'),
     messageTemplate: valText(
       qInput.messageTemplate,
       base.details.quote.messageTemplate,
-      500,
       'details.quote.messageTemplate'
     ),
-    defaultSegment: valText(qInput.defaultSegment, base.details.quote.defaultSegment, 40, 'details.quote.defaultSegment'),
-    defaultService: valText(qInput.defaultService, base.details.quote.defaultService, 50, 'details.quote.defaultService'),
+    defaultSegment: valText(qInput.defaultSegment, base.details.quote.defaultSegment, 'details.quote.defaultSegment'),
+    defaultService: valText(qInput.defaultService, base.details.quote.defaultService, 'details.quote.defaultService'),
     defaultLocation: valText(
       qInput.defaultLocation,
       base.details.quote.defaultLocation,
-      50,
       'details.quote.defaultLocation'
     ),
     defaultProperty: valText(
       qInput.defaultProperty,
       base.details.quote.defaultProperty,
-      50,
       'details.quote.defaultProperty'
     ),
   };
@@ -949,7 +1171,6 @@ export function validateAndMergeConfigWithErrors(
     mInput.items,
     base.details.marquee.items,
     10,
-    60,
     'details.marquee.items'
   );
 
@@ -958,25 +1179,25 @@ export function validateAndMergeConfigWithErrors(
   let projects = base.details.work.projects;
   if (wInput.projects !== undefined) {
     if (!Array.isArray(wInput.projects)) {
-      recordSkip('details.work.projects', 'Expected array');
+      recordRejected('details.work.projects', 'expected array');
     } else {
       if (wInput.projects.length > 8) {
-        recordSkip('details.work.projects', 'Array exceeds max length of 8 (extra items truncated)');
+        recordRejected('details.work.projects', 'array exceeds max 8 items');
       }
       const nextProjects: SiteConfig['details']['work']['projects'] = [];
       wInput.projects.slice(0, 8).forEach((p, idx) => {
         const itemPath = `details.work.projects.${idx}`;
         if (!isPlainObject(p)) {
-          recordSkip(itemPath, 'Expected object');
+          recordRejected(itemPath, 'expected object');
           return;
         }
-        const title = valText(p.title, '', 100, `${itemPath}.title`);
-        const location = valText(p.location, '', 100, `${itemPath}.location`);
-        const material = valText(p.material, '', 60, `${itemPath}.material`);
-        const duration = valText(p.duration, '', 40, `${itemPath}.duration`);
-        const area = valText(p.area, '', 40, `${itemPath}.area`);
+        const title = valText(p.title, '', `${itemPath}.title`);
+        const location = valText(p.location, '', `${itemPath}.location`);
+        const material = valText(p.material, '', `${itemPath}.material`);
+        const duration = valText(p.duration, '', `${itemPath}.duration`);
+        const area = valText(p.area, '', `${itemPath}.area`);
         const image = valImage(p.image, '', `${itemPath}.image`);
-        const imageAlt = valText(p.imageAlt, '', 120, `${itemPath}.imageAlt`);
+        const imageAlt = valText(p.imageAlt, '', `${itemPath}.imageAlt`);
         if (title.length > 0) {
           nextProjects.push({ title, location, material, duration, area, image, imageAlt });
         }
@@ -990,20 +1211,20 @@ export function validateAndMergeConfigWithErrors(
   let serviceItems = base.details.services.items;
   if (sInput.items !== undefined) {
     if (!Array.isArray(sInput.items)) {
-      recordSkip('details.services.items', 'Expected array');
+      recordRejected('details.services.items', 'expected array');
     } else {
       if (sInput.items.length > 6) {
-        recordSkip('details.services.items', 'Array exceeds max length of 6 (extra items truncated)');
+        recordRejected('details.services.items', 'array exceeds max 6 items');
       }
       const nextServices: SiteConfig['details']['services']['items'] = [];
       sInput.items.slice(0, 6).forEach((s, idx) => {
         const itemPath = `details.services.items.${idx}`;
         if (!isPlainObject(s)) {
-          recordSkip(itemPath, 'Expected object');
+          recordRejected(itemPath, 'expected object');
           return;
         }
-        const title = valText(s.title, '', 80, `${itemPath}.title`);
-        const text = valText(s.text, '', 400, `${itemPath}.text`);
+        const title = valText(s.title, '', `${itemPath}.title`);
+        const text = valText(s.text, '', `${itemPath}.text`);
         const image = valImage(s.image, '', `${itemPath}.image`);
         if (title.length > 0) {
           nextServices.push({ title, text, image });
@@ -1018,20 +1239,20 @@ export function validateAndMergeConfigWithErrors(
   let whyFeatures = base.details.why.features;
   if (whyInput.features !== undefined) {
     if (!Array.isArray(whyInput.features)) {
-      recordSkip('details.why.features', 'Expected array');
+      recordRejected('details.why.features', 'expected array');
     } else {
       if (whyInput.features.length > 4) {
-        recordSkip('details.why.features', 'Array exceeds max length of 4 (extra items truncated)');
+        recordRejected('details.why.features', 'array exceeds max 4 items');
       }
       const nextFeatures: SiteConfig['details']['why']['features'] = [];
       whyInput.features.slice(0, 4).forEach((f, idx) => {
         const itemPath = `details.why.features.${idx}`;
         if (!isPlainObject(f)) {
-          recordSkip(itemPath, 'Expected object');
+          recordRejected(itemPath, 'expected object');
           return;
         }
-        const title = valText(f.title, '', 80, `${itemPath}.title`);
-        const text = valText(f.text, '', 400, `${itemPath}.text`);
+        const title = valText(f.title, '', `${itemPath}.title`);
+        const text = valText(f.text, '', `${itemPath}.text`);
         if (title.length > 0) {
           nextFeatures.push({ title, text });
         }
@@ -1045,21 +1266,21 @@ export function validateAndMergeConfigWithErrors(
   let stepItems = base.details.steps.items;
   if (stepsInput.items !== undefined) {
     if (!Array.isArray(stepsInput.items)) {
-      recordSkip('details.steps.items', 'Expected array');
+      recordRejected('details.steps.items', 'expected array');
     } else {
       if (stepsInput.items.length > 6) {
-        recordSkip('details.steps.items', 'Array exceeds max length of 6 (extra items truncated)');
+        recordRejected('details.steps.items', 'array exceeds max 6 items');
       }
       const nextSteps: SiteConfig['details']['steps']['items'] = [];
       stepsInput.items.slice(0, 6).forEach((st, idx) => {
         const itemPath = `details.steps.items.${idx}`;
         if (!isPlainObject(st)) {
-          recordSkip(itemPath, 'Expected object');
+          recordRejected(itemPath, 'expected object');
           return;
         }
-        const badge = valText(st.badge, '', 20, `${itemPath}.badge`);
-        const title = valText(st.title, '', 80, `${itemPath}.title`);
-        const text = valText(st.text, '', 500, `${itemPath}.text`);
+        const badge = valText(st.badge, '', `${itemPath}.badge`);
+        const title = valText(st.title, '', `${itemPath}.title`);
+        const text = valText(st.text, '', `${itemPath}.text`);
         const image = valImage(st.image, '', `${itemPath}.image`);
         if (title.length > 0) {
           nextSteps.push({ badge, title, text, image });
@@ -1074,23 +1295,23 @@ export function validateAndMergeConfigWithErrors(
   let reviewItems = base.details.reviews.items;
   if (revInput.items !== undefined) {
     if (!Array.isArray(revInput.items)) {
-      recordSkip('details.reviews.items', 'Expected array');
+      recordRejected('details.reviews.items', 'expected array');
     } else {
       if (revInput.items.length > 12) {
-        recordSkip('details.reviews.items', 'Array exceeds max length of 12 (extra items truncated)');
+        recordRejected('details.reviews.items', 'array exceeds max 12 items');
       }
       const nextReviews: SiteConfig['details']['reviews']['items'] = [];
       revInput.items.slice(0, 12).forEach((r, idx) => {
         const itemPath = `details.reviews.items.${idx}`;
         if (!isPlainObject(r)) {
-          recordSkip(itemPath, 'Expected object');
+          recordRejected(itemPath, 'expected object');
           return;
         }
-        const initials = valText(r.initials, '', 6, `${itemPath}.initials`);
-        const author = valText(r.author, '', 60, `${itemPath}.author`);
-        const meta = valText(r.meta, '', 80, `${itemPath}.meta`);
-        const serviceTag = valText(r.serviceTag, '', 40, `${itemPath}.serviceTag`);
-        const text = valText(r.text, '', 500, `${itemPath}.text`);
+        const initials = valText(r.initials, '', `${itemPath}.initials`);
+        const author = valText(r.author, '', `${itemPath}.author`);
+        const meta = valText(r.meta, '', `${itemPath}.meta`);
+        const serviceTag = valText(r.serviceTag, '', `${itemPath}.serviceTag`);
+        const text = valText(r.text, '', `${itemPath}.text`);
         if (text.length > 0) {
           nextReviews.push({ initials, author, meta, serviceTag, text });
         }
@@ -1104,20 +1325,20 @@ export function validateAndMergeConfigWithErrors(
   let faqItems = base.details.faq.items;
   if (faqInput.items !== undefined) {
     if (!Array.isArray(faqInput.items)) {
-      recordSkip('details.faq.items', 'Expected array');
+      recordRejected('details.faq.items', 'expected array');
     } else {
       if (faqInput.items.length > 8) {
-        recordSkip('details.faq.items', 'Array exceeds max length of 8 (extra items truncated)');
+        recordRejected('details.faq.items', 'array exceeds max 8 items');
       }
       const nextFaq: SiteConfig['details']['faq']['items'] = [];
       faqInput.items.slice(0, 8).forEach((q, idx) => {
         const itemPath = `details.faq.items.${idx}`;
         if (!isPlainObject(q)) {
-          recordSkip(itemPath, 'Expected object');
+          recordRejected(itemPath, 'expected object');
           return;
         }
-        const question = valText(q.question, '', 160, `${itemPath}.question`);
-        const answer = valText(q.answer, '', 800, `${itemPath}.answer`);
+        const question = valText(q.question, '', `${itemPath}.question`);
+        const answer = valText(q.answer, '', `${itemPath}.answer`);
         if (question.length > 0) {
           nextFaq.push({ question, answer });
         }
@@ -1132,7 +1353,6 @@ export function validateAndMergeConfigWithErrors(
     fInput.serviceAreas,
     base.details.find.serviceAreas,
     8,
-    50,
     'details.find.serviceAreas'
   );
 
@@ -1142,20 +1362,20 @@ export function validateAndMergeConfigWithErrors(
   let mosaicImages = base.details.ctaMosaic['images'];
   if (rawMosaicList !== undefined) {
     if (!Array.isArray(rawMosaicList)) {
-      recordSkip('details.ctaMosaic.images', 'Expected array');
+      recordRejected('details.ctaMosaic.images', 'expected array');
     } else {
       if (rawMosaicList.length > 6) {
-        recordSkip('details.ctaMosaic.images', 'Array exceeds max length of 6 (extra items truncated)');
+        recordRejected('details.ctaMosaic.images', 'array exceeds max 6 items');
       }
       const nextMosaic: SiteConfig['details']['ctaMosaic']['images'] = [];
       rawMosaicList.slice(0, 6).forEach((img, idx) => {
         const itemPath = `details.ctaMosaic.images.${idx}`;
         if (!isPlainObject(img)) {
-          recordSkip(itemPath, 'Expected object');
+          recordRejected(itemPath, 'expected object');
           return;
         }
         const src = valImage(img.src, '', `${itemPath}.src`);
-        const alt = valText(img.alt, '', 100, `${itemPath}.alt`);
+        const alt = valText(img.alt, '', `${itemPath}.alt`);
         nextMosaic.push({ src, alt });
       });
       mosaicImages = nextMosaic;
@@ -1164,7 +1384,7 @@ export function validateAndMergeConfigWithErrors(
 
   // Contact
   const cInput = getObj(d, 'contact', 'details.contact');
-  const contactPhone = valText(cInput.phone, base.details.contact.phone, 30, 'details.contact.phone');
+  const contactPhone = valText(cInput.phone, base.details.contact.phone, 'details.contact.phone');
   const phoneTelFallback =
     cInput.phone !== undefined ? cleanPhoneDigits(contactPhone) : base.details.contact.phoneTel;
 
@@ -1174,7 +1394,7 @@ export function validateAndMergeConfigWithErrors(
   // Creator
   const crInput = getObj(d, 'creator', 'details.creator');
   const creatorUrl = valLink(crInput.url, base.details.creator.url, 'details.creator.url', {
-    httpsOnly: true,
+    webOnly: true,
   });
   const requestedCreatorEnabled = valBool(
     crInput.enabled,
@@ -1182,7 +1402,7 @@ export function validateAndMergeConfigWithErrors(
     'details.creator.enabled'
   );
   if (requestedCreatorEnabled && !creatorUrl.startsWith('https://')) {
-    recordSkip('details.creator.enabled', 'Creator badge disabled because creator.url must be a valid https:// URL');
+    recordRejected('details.creator.enabled', 'requires https:// creator.url');
   }
   const creatorEnabled = requestedCreatorEnabled && creatorUrl.startsWith('https://');
 
@@ -1190,23 +1410,25 @@ export function validateAndMergeConfigWithErrors(
   const primaryColor = valColor(b.primaryColor, base.brand.primaryColor, 'brand.primaryColor');
   const secondaryColor = valColor(b.secondaryColor, base.brand.secondaryColor, 'brand.secondaryColor');
   const accentColor = valColor(b.accentColor, base.brand.accentColor, 'brand.accentColor');
-  const fontStack = valText(b.fontStack, base.brand.fontStack, 200, 'brand.fontStack', true);
+  const fontStack = valText(b.fontStack, base.brand.fontStack, 'brand.fontStack', true);
 
   let radius = base.brand.radius;
   if (b.radius !== undefined) {
     if (typeof b.radius !== 'number' || !Number.isFinite(b.radius) || b.radius < 0 || b.radius > 28) {
-      recordSkip('brand.radius', 'Invalid radius (expected number between 0 and 28)');
+      recordRejected('brand.radius', 'expected number between 0 and 28');
     } else {
       radius = b.radius;
+      recordApplied('brand.radius');
     }
   }
 
   let density = base.brand.density;
   if (b.density !== undefined) {
     if (b.density !== 'compact' && b.density !== 'normal' && b.density !== 'airy') {
-      recordSkip('brand.density', 'Invalid density (expected "compact", "normal", or "airy")');
+      recordRejected('brand.density', 'expected "compact", "normal", or "airy"');
     } else {
       density = b.density;
+      recordApplied('brand.density');
     }
   }
 
@@ -1214,12 +1436,11 @@ export function validateAndMergeConfigWithErrors(
   const sectionsOn = { ...base.layout.sectionsOn };
   if (l.sectionsOn !== undefined) {
     if (!isPlainObject(l.sectionsOn)) {
-      recordSkip('layout.sectionsOn', 'Expected object');
+      recordRejected('layout.sectionsOn', 'expected object');
     } else {
       for (const [sid, val] of Object.entries(l.sectionsOn)) {
         if (!VALID_SECTION_IDS.includes(sid as SectionId)) {
-          recordSkip(`layout.sectionsOn.${sid}`, 'Unknown section ID');
-          continue;
+          continue; // Already logged by collectUnknownKeys as "unknown key"
         }
         sectionsOn[sid as SectionId] = valBool(
           val,
@@ -1233,14 +1454,15 @@ export function validateAndMergeConfigWithErrors(
   let sectionOrder = base.layout.sectionOrder;
   if (l.sectionOrder !== undefined) {
     if (!Array.isArray(l.sectionOrder)) {
-      recordSkip('layout.sectionOrder', 'Expected array');
+      recordRejected('layout.sectionOrder', 'expected array');
     } else {
       const nextOrder: string[] = [];
       l.sectionOrder.forEach((id, idx) => {
         if (typeof id === 'string' && VALID_SECTION_IDS.includes(id as SectionId)) {
           nextOrder.push(id);
+          recordApplied(`layout.sectionOrder.${idx}`);
         } else {
-          recordSkip(`layout.sectionOrder.${idx}`, 'Invalid section ID');
+          recordRejected(`layout.sectionOrder.${idx}`, 'invalid section ID');
         }
       });
       sectionOrder = nextOrder;
@@ -1250,10 +1472,10 @@ export function validateAndMergeConfigWithErrors(
   const variants: Record<string, string> = { ...base.layout.variants };
   if (l.variants !== undefined) {
     if (!isPlainObject(l.variants)) {
-      recordSkip('layout.variants', 'Expected object');
+      recordRejected('layout.variants', 'expected object');
     } else {
       for (const [vk, vv] of Object.entries(l.variants)) {
-        const cleaned = valText(vv, '', 60, `layout.variants.${vk}`);
+        const cleaned = valText(vv, '', `layout.variants.${vk}`);
         if (cleaned) variants[vk] = cleaned;
       }
     }
@@ -1261,25 +1483,19 @@ export function validateAndMergeConfigWithErrors(
 
   const config: SiteConfig = {
     details: {
-      businessName: valText(d.businessName, base.details.businessName, 80, 'details.businessName'),
-      logoText: valText(d.logoText, base.details.logoText, 50, 'details.logoText'),
-      tagline: valText(d.tagline, base.details.tagline, 140, 'details.tagline'),
-      metaTitle: valText(d.metaTitle, base.details.metaTitle, 120, 'details.metaTitle'),
-      metaDescription: valText(
-        d.metaDescription,
-        base.details.metaDescription,
-        300,
-        'details.metaDescription'
-      ),
-      ogTitle: valText(d.ogTitle, base.details.ogTitle, 120, 'details.ogTitle'),
-      ogDescription: valText(d.ogDescription, base.details.ogDescription, 300, 'details.ogDescription'),
+      businessName: valText(d.businessName, base.details.businessName, 'details.businessName'),
+      logoText: valText(d.logoText, base.details.logoText, 'details.logoText'),
+      tagline: valText(d.tagline, base.details.tagline, 'details.tagline'),
+      metaTitle: valText(d.metaTitle, base.details.metaTitle, 'details.metaTitle'),
+      metaDescription: valText(d.metaDescription, base.details.metaDescription, 'details.metaDescription'),
+      ogTitle: valText(d.ogTitle, base.details.ogTitle, 'details.ogTitle'),
+      ogDescription: valText(d.ogDescription, base.details.ogDescription, 'details.ogDescription'),
       nav: {
         links,
-        ctaLabel: valText(navInput.ctaLabel, base.details.nav.ctaLabel, 40, 'details.nav.ctaLabel'),
+        ctaLabel: valText(navInput.ctaLabel, base.details.nav.ctaLabel, 'details.nav.ctaLabel'),
         secondaryButtonLabel: valText(
           navInput.secondaryButtonLabel,
           base.details.nav.secondaryButtonLabel,
-          40,
           'details.nav.secondaryButtonLabel'
         ),
         secondaryButtonUrl: valLink(
@@ -1290,8 +1506,8 @@ export function validateAndMergeConfigWithErrors(
         ),
       },
       hero: {
-        title: valOptionalText(heroInput.title, base.details.hero.title, 120, 'details.hero.title'),
-        subtitle: valText(heroInput.subtitle, base.details.hero.subtitle, 400, 'details.hero.subtitle'),
+        title: valOptionalText(heroInput.title, base.details.hero.title, 'details.hero.title'),
+        subtitle: valText(heroInput.subtitle, base.details.hero.subtitle, 'details.hero.subtitle'),
         showTitleText: valBool(
           heroInput.showTitleText,
           base.details.hero.showTitleText ?? true,
@@ -1303,77 +1519,71 @@ export function validateAndMergeConfigWithErrors(
         items: marqueeItems,
       },
       work: {
-        tagLabel: valText(wInput.tagLabel, base.details.work.tagLabel, 40, 'details.work.tagLabel'),
-        title: valText(wInput.title, base.details.work.title, 80, 'details.work.title'),
-        description: valText(wInput.description, base.details.work.description, 400, 'details.work.description'),
+        tagLabel: valText(wInput.tagLabel, base.details.work.tagLabel, 'details.work.tagLabel'),
+        title: valText(wInput.title, base.details.work.title, 'details.work.title'),
+        description: valText(wInput.description, base.details.work.description, 'details.work.description'),
         totalProjectsLabel: valText(
           wInput.totalProjectsLabel,
           base.details.work.totalProjectsLabel,
-          40,
           'details.work.totalProjectsLabel'
         ),
         instagramNotice: valText(
           wInput.instagramNotice,
           base.details.work.instagramNotice,
-          160,
           'details.work.instagramNotice'
         ),
         viewAllLabelTop: valText(
           wInput.viewAllLabelTop,
           base.details.work.viewAllLabelTop,
-          40,
           'details.work.viewAllLabelTop'
         ),
         viewAllLabelBottom: valText(
           wInput.viewAllLabelBottom,
           base.details.work.viewAllLabelBottom,
-          40,
           'details.work.viewAllLabelBottom'
         ),
         projects,
       },
       services: {
-        tagLabel: valText(sInput.tagLabel, base.details.services.tagLabel, 40, 'details.services.tagLabel'),
-        title: valText(sInput.title, base.details.services.title, 80, 'details.services.title'),
+        tagLabel: valText(sInput.tagLabel, base.details.services.tagLabel, 'details.services.tagLabel'),
+        title: valText(sInput.title, base.details.services.title, 'details.services.title'),
         items: serviceItems,
       },
       why: {
-        tagLabel: valText(whyInput.tagLabel, base.details.why.tagLabel, 40, 'details.why.tagLabel'),
-        title: valText(whyInput.title, base.details.why.title, 80, 'details.why.title'),
-        leadText: valText(whyInput.leadText, base.details.why.leadText, 400, 'details.why.leadText'),
+        tagLabel: valText(whyInput.tagLabel, base.details.why.tagLabel, 'details.why.tagLabel'),
+        title: valText(whyInput.title, base.details.why.title, 'details.why.title'),
+        leadText: valText(whyInput.leadText, base.details.why.leadText, 'details.why.leadText'),
         features: whyFeatures,
       },
       steps: {
-        tagLabel: valText(stepsInput.tagLabel, base.details.steps.tagLabel, 40, 'details.steps.tagLabel'),
-        title: valText(stepsInput.title, base.details.steps.title, 80, 'details.steps.title'),
+        tagLabel: valText(stepsInput.tagLabel, base.details.steps.tagLabel, 'details.steps.tagLabel'),
+        title: valText(stepsInput.title, base.details.steps.title, 'details.steps.title'),
         items: stepItems,
         ctaButtonText: valText(
           stepsInput.ctaButtonText,
           base.details.steps.ctaButtonText,
-          40,
           'details.steps.ctaButtonText'
         ),
         ctaSubText: valText(
           stepsInput.ctaSubText,
           base.details.steps.ctaSubText,
-          140,
           'details.steps.ctaSubText'
         ),
       },
       reviews: {
-        tagLabel: valText(revInput.tagLabel, base.details.reviews.tagLabel, 40, 'details.reviews.tagLabel'),
-        title: valText(revInput.title, base.details.reviews.title, 80, 'details.reviews.title'),
-        countLabel: valText(revInput.countLabel, base.details.reviews.countLabel, 40, 'details.reviews.countLabel'),
+        tagLabel: valText(revInput.tagLabel, base.details.reviews.tagLabel, 'details.reviews.tagLabel'),
+        title: valText(revInput.title, base.details.reviews.title, 'details.reviews.title'),
+        countLabel: valText(revInput.countLabel, base.details.reviews.countLabel, 'details.reviews.countLabel'),
         items: reviewItems,
       },
       faq: {
-        tagLabel: valText(faqInput.tagLabel, base.details.faq.tagLabel, 40, 'details.faq.tagLabel'),
-        title: valText(faqInput.title, base.details.faq.title, 80, 'details.faq.title'),
+        tagLabel: valText(faqInput.tagLabel, base.details.faq.tagLabel, 'details.faq.tagLabel'),
+        title: valText(faqInput.title, base.details.faq.title, 'details.faq.title'),
         items: faqItems,
       },
       find: {
-        tagLabel: valText(fInput.tagLabel, base.details.find.tagLabel, 40, 'details.find.tagLabel'),
-        title: valText(fInput.title, base.details.find.title, 80, 'details.find.title'),
+        tagLabel: valText(fInput.tagLabel, base.details.find.tagLabel, 'details.find.tagLabel'),
+        title: valText(fInput.title, base.details.find.title, 'details.find.title'),
         mapsSearchUrl: valLink(fInput.mapsSearchUrl, base.details.find.mapsSearchUrl, 'details.find.mapsSearchUrl', {
           allowHash: false,
         }),
@@ -1383,15 +1593,14 @@ export function validateAndMergeConfigWithErrors(
           'details.find.mapsEmbedUrl'
         ),
         mapEnabled: valBool(fInput.mapEnabled, base.details.find.mapEnabled, 'details.find.mapEnabled'),
-        buttonText: valText(fInput.buttonText, base.details.find.buttonText, 50, 'details.find.buttonText'),
+        buttonText: valText(fInput.buttonText, base.details.find.buttonText, 'details.find.buttonText'),
         serviceAreas,
       },
       ctaMosaic: {
-        title: valText(cmInput.title, base.details.ctaMosaic.title, 100, 'details.ctaMosaic.title'),
+        title: valText(cmInput.title, base.details.ctaMosaic.title, 'details.ctaMosaic.title'),
         callButtonText: valText(
           cmInput.callButtonText,
           base.details.ctaMosaic.callButtonText,
-          40,
           'details.ctaMosaic.callButtonText'
         ),
         images: mosaicImages,
@@ -1399,12 +1608,11 @@ export function validateAndMergeConfigWithErrors(
       contact: {
         phone: contactPhone,
         phoneTel: valPhoneTel(cInput.phoneTel, phoneTelFallback, 'details.contact.phoneTel'),
-        email: valText(cInput.email, base.details.contact.email, 80, 'details.contact.email'),
-        address: valText(cInput.address, base.details.contact.address, 160, 'details.contact.address'),
+        email: valText(cInput.email, base.details.contact.email, 'details.contact.email'),
+        address: valText(cInput.address, base.details.contact.address, 'details.contact.address'),
         openingHours: valText(
           cInput.openingHours,
           base.details.contact.openingHours,
-          120,
           'details.contact.openingHours'
         ),
         whatsappUrl: valWhatsApp(
@@ -1421,7 +1629,6 @@ export function validateAndMergeConfigWithErrors(
         instagramHandle: valText(
           cInput.instagramHandle,
           base.details.contact.instagramHandle,
-          60,
           'details.contact.instagramHandle'
         ),
         facebookUrl: valLink(
@@ -1438,50 +1645,44 @@ export function validateAndMergeConfigWithErrors(
         }),
       },
       footer: {
-        heading: valText(footerInput.heading, base.details.footer.heading, 100, 'details.footer.heading'),
-        subtitle: valText(footerInput.subtitle, base.details.footer.subtitle, 400, 'details.footer.subtitle'),
-        blurb: valText(footerInput.blurb, base.details.footer.blurb, 400, 'details.footer.blurb'),
-        navTitle: valText(footerInput.navTitle, base.details.footer.navTitle, 40, 'details.footer.navTitle'),
+        heading: valText(footerInput.heading, base.details.footer.heading, 'details.footer.heading'),
+        subtitle: valText(footerInput.subtitle, base.details.footer.subtitle, 'details.footer.subtitle'),
+        blurb: valText(footerInput.blurb, base.details.footer.blurb, 'details.footer.blurb'),
+        navTitle: valText(footerInput.navTitle, base.details.footer.navTitle, 'details.footer.navTitle'),
         servicesTitle: valText(
           footerInput.servicesTitle,
           base.details.footer.servicesTitle,
-          40,
           'details.footer.servicesTitle'
         ),
         contactTitle: valText(
           footerInput.contactTitle,
           base.details.footer.contactTitle,
-          40,
           'details.footer.contactTitle'
         ),
         copyrightLine: valText(
           footerInput.copyrightLine,
           base.details.footer.copyrightLine,
-          100,
           'details.footer.copyrightLine'
         ),
         rightsText: valText(
           footerInput.rightsText,
           base.details.footer.rightsText,
-          80,
           'details.footer.rightsText'
         ),
         giantText: valText(
           footerInput.giantText,
           base.details.footer.giantText,
-          60,
           'details.footer.giantText'
         ),
       },
       creator: {
         enabled: creatorEnabled,
         url: creatorUrl,
-        label: valText(crInput.label, base.details.creator.label, 20, 'details.creator.label'),
-        brandTop: valText(crInput.brandTop, base.details.creator.brandTop, 20, 'details.creator.brandTop'),
+        label: valText(crInput.label, base.details.creator.label, 'details.creator.label'),
+        brandTop: valText(crInput.brandTop, base.details.creator.brandTop, 'details.creator.brandTop'),
         brandBottom: valText(
           crInput.brandBottom,
           base.details.creator.brandBottom,
-          20,
           'details.creator.brandBottom'
         ),
       },
@@ -1506,7 +1707,7 @@ export function validateAndMergeConfigWithErrors(
     },
   };
 
-  return { config, skippedFields };
+  return { config, applied, rejected };
 }
 
 export function validateAndMergeConfig(
@@ -1519,8 +1720,27 @@ export function validateAndMergeConfig(
 export function updatePageMeta(config: SiteConfig) {
   if (typeof document === 'undefined') return;
 
-  const fallbackTitle = [config.details.businessName, config.details.tagline].filter(Boolean).join(' | ');
-  const title = config.details.metaTitle || fallbackTitle;
+  const hasCustomBusiness =
+    config.details.businessName &&
+    config.details.businessName !== defaultSiteConfig.details.businessName;
+  const hasExplicitMetaTitle =
+    config.details.metaTitle !== defaultSiteConfig.details.metaTitle;
+
+  const fallbackTitle = [
+    config.details.businessName,
+    config.details.tagline !== defaultSiteConfig.details.tagline || !hasCustomBusiness
+      ? config.details.tagline
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  const title = hasExplicitMetaTitle
+    ? config.details.metaTitle
+    : hasCustomBusiness
+    ? fallbackTitle
+    : config.details.metaTitle || fallbackTitle;
+
   document.title = title;
 
   const setMeta = (nameAttr: string, key: string, content: string) => {
@@ -1551,22 +1771,18 @@ export function updatePageMeta(config: SiteConfig) {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level OH_CONFIG & OH_PING receiver (registered ONCE at app start)
+// Module-level OH_CONFIG receiver (registered ONCE at app start)
 // ---------------------------------------------------------------------------
 
 const MAX_PAYLOAD_BYTES = 6 * 1024 * 1024;
 
 let currentConfig: SiteConfig = defaultSiteConfig;
 let debugState: OhDebugState = {
-  ohReadySentCount: 0,
-  lastMessageOrigin: '',
-  ohConfigReceivedCount: 0,
-  lastOhConfigTime: null,
-  lastPayloadBytes: 0,
-  topLevelKeys: [],
-  shapeDetected: 'none',
-  skippedFields: [],
-  lastReceivedConfig: null,
+  lastMessageTime: null,
+  appliedCount: 0,
+  appliedKeys: [],
+  rejected: [],
+  rawReceivedConfig: null,
 };
 let hasReceivedLiveConfig = false;
 let isReceiverInitialized = false;
@@ -1584,127 +1800,113 @@ export function getDebugStateSnapshot(): OhDebugState {
   return debugState;
 }
 
-export function sendOhReady() {
+function postToParent(message: Record<string, unknown>) {
   if (typeof window === 'undefined') return;
   try {
     if (window.parent) {
-      window.parent.postMessage({ type: 'OH_READY', version: 1 }, '*');
-      debugState = {
-        ...debugState,
-        ohReadySentCount: debugState.ohReadySentCount + 1,
-      };
-      emitStoreChange();
+      window.parent.postMessage(message, '*');
     }
   } catch {
-    // Ignore cross-origin postMessage error
+    // Ignore cross-origin postMessage errors
   }
+}
+
+function extractConfigObject(data: Record<string, unknown>): unknown {
+  if ('config' in data) {
+    return data.config;
+  }
+  const fallback: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(data)) {
+    if (key === 'type' || key === 'version' || UNSAFE_KEYS.has(key)) continue;
+    fallback[key] = val;
+  }
+  return Object.keys(fallback).length > 0 ? fallback : undefined;
 }
 
 export function processIncomingOhMessage(
   source: MessageEventSource | null,
-  origin: string,
   data: unknown
 ): boolean {
   if (typeof window === 'undefined') return false;
   if (source !== window.parent) return false;
   if (!isPlainObject(data)) return false;
-
-  // Ignore our own OH_READY echo when running outside an iframe (window.parent === window)
-  if (data.type === 'OH_READY') return false;
-
-  // Re-emit OH_READY every time an OH_PING message arrives from parent
-  if (data.type === 'OH_PING') {
-    debugState = {
-      ...debugState,
-      lastMessageOrigin: origin || '',
-    };
-    sendOhReady();
-    return true;
-  }
-
-  // Strict guard for OH_CONFIG
   if (data.type !== 'OH_CONFIG' || data.version !== 1) return false;
 
-  let payloadString = '';
-  let payloadBytes = 0;
+  const nowIso = new Date().toISOString();
+
   try {
-    payloadString = JSON.stringify(data);
-    payloadBytes =
+    const payloadString = JSON.stringify(data);
+    const bytes =
       typeof TextEncoder !== 'undefined'
         ? new TextEncoder().encode(payloadString).length
         : payloadString.length;
+    if (bytes > MAX_PAYLOAD_BYTES) {
+      const rejected = [{ key: 'config', reason: 'payload exceeds 6 MB limit' }];
+      debugState = {
+        lastMessageTime: nowIso,
+        appliedCount: 0,
+        appliedKeys: [],
+        rejected,
+        rawReceivedConfig: null,
+      };
+      postToParent({ type: 'OH_APPLIED', version: 1, applied: [], rejected });
+      emitStoreChange();
+      return false;
+    }
   } catch {
+    const rejected = [{ key: 'config', reason: 'unserializable payload' }];
     debugState = {
-      ...debugState,
-      lastMessageOrigin: origin || '',
-      ohConfigReceivedCount: debugState.ohConfigReceivedCount + 1,
-      lastOhConfigTime: new Date().toISOString(),
-      skippedFields: [{ path: '(root)', reason: 'Payload could not be serialized as JSON' }],
+      lastMessageTime: nowIso,
+      appliedCount: 0,
+      appliedKeys: [],
+      rejected,
+      rawReceivedConfig: null,
     };
+    postToParent({ type: 'OH_APPLIED', version: 1, applied: [], rejected });
     emitStoreChange();
     return false;
   }
 
-  if (payloadBytes > MAX_PAYLOAD_BYTES) {
+  const rawConfig = extractConfigObject(data);
+  if (!isPlainObject(rawConfig)) {
+    const rejected = [{ key: 'config', reason: 'expected config object' }];
     debugState = {
-      ...debugState,
-      lastMessageOrigin: origin || '',
-      ohConfigReceivedCount: debugState.ohConfigReceivedCount + 1,
-      lastOhConfigTime: new Date().toISOString(),
-      lastPayloadBytes: payloadBytes,
-      skippedFields: [{ path: '(root)', reason: 'Payload exceeds 6 MB limit' }],
+      lastMessageTime: nowIso,
+      appliedCount: 0,
+      appliedKeys: [],
+      rejected,
+      rawReceivedConfig: rawConfig ?? null,
     };
+    postToParent({ type: 'OH_APPLIED', version: 1, applied: [], rejected });
     emitStoreChange();
     return false;
   }
 
-  const rawConfig = extractRawConfig(data);
-  if (!rawConfig) {
-    debugState = {
-      ...debugState,
-      lastMessageOrigin: origin || '',
-      ohConfigReceivedCount: debugState.ohConfigReceivedCount + 1,
-      lastOhConfigTime: new Date().toISOString(),
-      lastPayloadBytes: payloadBytes,
-      topLevelKeys: [],
-      shapeDetected: 'none',
-      skippedFields: [{ path: '(root)', reason: 'Missing or invalid config payload object' }],
-      lastReceivedConfig: data,
-    };
-    emitStoreChange();
-    return false;
-  }
-
-  const topLevelKeys = Object.keys(rawConfig);
-  const shapeDetected = detectConfigShape(rawConfig);
-  const normalized = normalizeIncomingConfig(rawConfig);
-  const { config: merged, skippedFields } = validateAndMergeConfigWithErrors(
-    normalized,
+  const normalised = normalise(rawConfig);
+  const { config: merged, applied, rejected } = validateAndMergeConfigWithErrors(
+    normalised,
     defaultSiteConfig
   );
 
   hasReceivedLiveConfig = true;
   currentConfig = merged;
   debugState = {
-    ...debugState,
-    lastMessageOrigin: origin || '',
-    ohConfigReceivedCount: debugState.ohConfigReceivedCount + 1,
-    lastOhConfigTime: new Date().toISOString(),
-    lastPayloadBytes: payloadBytes,
-    topLevelKeys,
-    shapeDetected,
-    skippedFields,
-    lastReceivedConfig: rawConfig,
+    lastMessageTime: nowIso,
+    appliedCount: applied.length,
+    appliedKeys: applied,
+    rejected,
+    rawReceivedConfig: rawConfig,
   };
 
   applyBrandCssVariables(merged.brand);
   updatePageMeta(merged);
+  postToParent({ type: 'OH_APPLIED', version: 1, applied, rejected });
   emitStoreChange();
   return true;
 }
 
 function handleWindowMessage(event: MessageEvent) {
-  processIncomingOhMessage(event.source, event.origin, event.data);
+  processIncomingOhMessage(event.source, event.data);
 }
 
 export function initOhConfigReceiver() {
@@ -1715,21 +1917,23 @@ export function initOhConfigReceiver() {
   updatePageMeta(currentConfig);
 
   window.addEventListener('message', handleWindowMessage);
-  sendOhReady();
+  postToParent({ type: 'OH_READY', version: 1 });
 
   fetch('/site.config.json', { cache: 'no-store' })
     .then((res) => (res.ok ? res.json() : null))
     .then((json) => {
       if (json && !hasReceivedLiveConfig) {
-        const normalized = normalizeIncomingConfig(json);
-        const { config: merged, skippedFields } = validateAndMergeConfigWithErrors(
-          normalized,
+        const normalised = normalise(json);
+        const { config: merged, applied, rejected } = validateAndMergeConfigWithErrors(
+          normalised,
           defaultSiteConfig
         );
         currentConfig = merged;
         debugState = {
           ...debugState,
-          skippedFields,
+          appliedCount: applied.length,
+          appliedKeys: applied,
+          rejected,
         };
         applyBrandCssVariables(merged.brand);
         updatePageMeta(merged);
@@ -1741,7 +1945,7 @@ export function initOhConfigReceiver() {
     });
 }
 
-// Register listener ONCE at module load outside any React component lifecycle
+// Register listener ONCE at app start outside React render
 if (typeof window !== 'undefined') {
   initOhConfigReceiver();
 }

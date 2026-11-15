@@ -17,9 +17,19 @@ export function isValidLink(url: string, allowHash = false): boolean {
   if (trimmed === '') return true;
   return (
     trimmed.startsWith('https://') ||
+    trimmed.startsWith('http://') ||
     trimmed.startsWith('tel:') ||
     trimmed.startsWith('mailto:') ||
     (allowHash && trimmed.startsWith('#'))
+  );
+}
+
+export function isValidWebUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (trimmed === '') return true;
+  return (
+    (trimmed.startsWith('https://') && trimmed.length > 8) ||
+    (trimmed.startsWith('http://') && trimmed.length > 7)
   );
 }
 
@@ -34,6 +44,7 @@ export function safeLink(url: string | undefined, allowHash = true): string {
   const trimmed = url.trim();
   if (
     trimmed.startsWith('https://') ||
+    trimmed.startsWith('http://') ||
     trimmed.startsWith('tel:') ||
     trimmed.startsWith('mailto:') ||
     (allowHash && trimmed.startsWith('#'))
@@ -48,6 +59,7 @@ export function isValidImageUrl(url: string): boolean {
   if (trimmed === '') return true;
   return (
     (trimmed.startsWith('https://') && trimmed.length > 8) ||
+    (trimmed.startsWith('http://') && trimmed.length > 7) ||
     trimmed.startsWith('data:image/png') ||
     trimmed.startsWith('data:image/jpeg') ||
     trimmed.startsWith('data:image/webp')
@@ -59,6 +71,7 @@ export function safeImageUrl(url: string | undefined): string {
   const trimmed = url.trim();
   if (
     (trimmed.startsWith('https://') && trimmed.length > 8) ||
+    (trimmed.startsWith('http://') && trimmed.length > 7) ||
     trimmed.startsWith('data:image/png') ||
     trimmed.startsWith('data:image/jpeg') ||
     trimmed.startsWith('data:image/webp')
