@@ -1778,6 +1778,7 @@ export type PreviewStatus = 'ready' | 'loading' | 'expired' | 'not_found';
 
 const MAX_PAYLOAD_BYTES = 6 * 1024 * 1024;
 const PREVIEW_TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
+const PREVIEW_SLUG_RE = /^[a-z0-9]+(-[0-9]+)?$/;
 const PREVIEW_TIMEOUT_MS = 8000;
 
 let currentConfig: SiteConfig = defaultSiteConfig;
@@ -1946,7 +1947,12 @@ function setDocumentStatusTitle(title: string) {
   }
 }
 
-async function fetchSupabasePreview(supabaseUrl: string, anonKey: string, token: string) {
+async function fetchSupabasePreviewRpc(
+  supabaseUrl: string,
+  anonKey: string,
+  rpcName: 'get_website_preview' | 'get_website_preview_by_slug',
+  bodyPayload: Record<string, string>
+) {
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timeoutId = controller
     ? setTimeout(() => {
@@ -1955,14 +1961,14 @@ async function fetchSupabasePreview(supabaseUrl: string, anonKey: string, token:
     : null;
 
   try {
-    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/get_website_preview`, {
+    const res = await fetch(`${supabaseUrl}/rest/v1/rpc/${rpcName}`, {
       method: 'POST',
       headers: {
         apikey: anonKey,
         Authorization: `Bearer ${anonKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ p_token: token }),
+      body: JSON.stringify(bodyPayload),
       signal: controller ? controller.signal : undefined,
       referrerPolicy: 'no-referrer',
     });
@@ -2027,6 +2033,31 @@ export function initOhConfigReceiver() {
   window.addEventListener('message', handleWindowMessage);
   postToParent({ type: 'OH_READY', version: 1 });
 
+  // Priority 1: path-based slug (/slug or /slug-2)
+  const slugPath = (window.location.pathname || '').replace(/^\/+|\/+$/g, '');
+  if (slugPath !== '') {
+    if (slugPath.length < 3 || slugPath.length > 60 || !PREVIEW_SLUG_RE.test(slugPath)) {
+      previewStatus = 'not_found';
+      setDocumentStatusTitle('This link is not valid');
+      return;
+    }
+
+    const { url, anonKey } = getSupabaseEnv();
+    if (!url || !anonKey) {
+      previewStatus = 'ready';
+      applyBrandCssVariables(currentConfig.brand);
+      updatePageMeta(currentConfig);
+      return;
+    }
+
+    previewStatus = 'loading';
+    void fetchSupabasePreviewRpc(url, anonKey, 'get_website_preview_by_slug', {
+      p_slug: slugPath,
+    });
+    return;
+  }
+
+  // Priority 2: ?p=<token>
   let previewToken: string | null = null;
   try {
     const params = new URLSearchParams(window.location.search);
@@ -2054,11 +2085,13 @@ export function initOhConfigReceiver() {
     }
 
     previewStatus = 'loading';
-    void fetchSupabasePreview(url, anonKey, previewToken);
+    void fetchSupabasePreviewRpc(url, anonKey, 'get_website_preview', {
+      p_token: previewToken,
+    });
     return;
   }
 
-  // Normal mode (no ?p): behave identically to before
+  // Priority 3: normal mode (no slug and no ?p)
   applyBrandCssVariables(currentConfig.brand);
   updatePageMeta(currentConfig);
 
